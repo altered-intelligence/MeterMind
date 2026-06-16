@@ -1,0 +1,28 @@
+[project]
+name = "home-utility-intelligence-backend"
+version = "1.0.0"
+description = "Home Utility Intelligence — CoServ utility bill ingestion and analytics (MVP)."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.0",
+    "pdfplumber>=0.11",
+    "python-multipart>=0.0.9",
+    "cryptography>=42",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+# OCR is used only as a fallback when a PDF has no extractable text layer.
+ocr = ["pytesseract>=0.3", "pdf2image>=1.17"]
+# Test-only: synthesize CoServ-shaped PDF fixtures (no real bill is committed) + API client.
+test = ["pytest>=8.0", "fpdf2>=2.7", "httpx>=0.27"]
+
+[tool.pytest.ini_options]
+testpaths = ["app/tests"]
+pythonpath = ["."]
+addopts = "-ra"
