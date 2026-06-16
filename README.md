@@ -27,7 +27,7 @@ in `backend/app/schemas.py`. See `backend/PARSER_README.md` for parser internals
 ### Option A — one command (recommended)
 
 ```bash
-cd /Users/alakhani/Documents/coserv-parser
+cd /Users/user/Documents/coserv-parser
 ./scripts/dev.sh
 ```
 
@@ -38,12 +38,12 @@ Then open <http://localhost:5173>. Press Ctrl-C to stop both.
 
 ```bash
 # Terminal A — backend
-cd /Users/alakhani/Documents/coserv-parser/backend
+cd /Users/user/Documents/coserv-parser/backend
 source .venv/bin/activate                 # venv already created by the build
 uvicorn app.main:app --reload --port 8077
 
 # Terminal B — frontend
-cd /Users/alakhani/Documents/coserv-parser/frontend
+cd /Users/user/Documents/coserv-parser/frontend
 npm run dev                                # deps already installed
 ```
 
