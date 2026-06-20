@@ -290,19 +290,34 @@ function TrendChart({
   );
 }
 
-export default function RateBreakdownPanel({ billId, version }: { billId: number; version: number }) {
-  const [data, setData] = useState<RateBreakdown | null>(null);
+export default function RateBreakdownPanel({
+  billId,
+  version,
+  preloaded,
+}: {
+  billId: number;
+  version: number;
+  /** When provided (e.g. by the Insights page), use this for the breakdown instead of
+   * fetching it (the trend chart is still fetched, since it needs all bills' history). */
+  preloaded?: RateBreakdown | null;
+}) {
+  const [data, setData] = useState<RateBreakdown | null>(preloaded ?? null);
   const [trends, setTrends] = useState<RateTrendPoint[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setData(null);
-    setError(null);
-    api
-      .rateBreakdown(billId)
-      .then((d) => alive && setData(d))
-      .catch((e) => alive && setError(e instanceof Error ? e.message : "Could not load rate breakdown."));
+    if (preloaded !== undefined) {
+      setData(preloaded);
+      setError(preloaded === null ? "Rate breakdown is unavailable." : null);
+    } else {
+      setData(null);
+      setError(null);
+      api
+        .rateBreakdown(billId)
+        .then((d) => alive && setData(d))
+        .catch((e) => alive && setError(e instanceof Error ? e.message : "Could not load rate breakdown."));
+    }
     api
       .rateBreakdownTrends()
       .then((t) => alive && setTrends(t))
@@ -310,7 +325,7 @@ export default function RateBreakdownPanel({ billId, version }: { billId: number
     return () => {
       alive = false;
     };
-  }, [billId, version]);
+  }, [billId, version, preloaded]);
 
   const trendData = useMemo(
     () =>

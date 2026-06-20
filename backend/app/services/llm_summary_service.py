@@ -362,3 +362,229 @@ def stream_ollama_events(messages: list, *, model: str, host: str, timeout: floa
     except Exception:
         yield {"t": "status", "d": "Local model unavailable (connection or timeout)."}
         return
+
+
+# ======================================================================================
+# Structured summary (5-field JSON) with deterministic fallback
+# ======================================================================================
+
+# Verbatim system prompt from the spec for the structured summary.
+STRUCTURED_SYSTEM_PROMPT = (
+    "You are summarizing a residential utility bill using only the structured data "
+    "provided. Do not infer unavailable information. Do not mention personal information. "
+    "Do not invent weather, appliance, HVAC, EV, irrigation, or occupancy explanations "
+    "unless those fields are explicitly present. Be concise, practical, and numerically "
+    "accurate. Use cautious language."
+)
+
+DISCLAIMER = "This summary is based only on parsed bill data."
+
+# The exact keys the structured summary must contain.
+_STRUCTURED_KEYS = ("summary", "notable_changes", "questions_to_investigate", "data_quality_notes")
+
+
+def build_structured_payload(db, bill: Bill) -> dict:
+    """The redacted metrics payload for the structured summary.
+
+    Extends :func:`build_redacted_payload` with audit status, parser confidence, comparison
+    metrics, anomalies, and a weather summary — all non-PII. Each block is optional and only
+    added when the underlying data exists, so the model never invents unavailable context.
+    """
+    payload = build_redacted_payload(db, bill)
+    payload["parser_confidence"] = bill.parser_confidence
+
+    # Audit status (deterministic internal-math check).
+    try:
+        from . import bill_audit_service
+
+        payload["audit_status"] = str(bill_audit_service.run_audit(bill).overall_status)
+    except Exception:  # pragma: no cover - optional context
+        pass
+
+    # Comparison vs the previous bill (narrative lines only; numbers already in history).
+    try:
+        from . import bill_comparison_service
+
+        cmp = bill_comparison_service.compare_bill(db, bill.id)
+        if cmp.status == "ok":
+            payload["comparison"] = {
+                "billing_days_changed": cmp.billing_days_changed,
+                "narrative": cmp.narrative.lines,
+            }
+    except Exception:  # pragma: no cover
+        pass
+
+    # Anomalies (messages/types only — already non-PII).
+    try:
+        from . import analytics_service
+
+        anom = analytics_service.detect_basic_anomalies(db, bill.user_id)
+        flags = anom.get("anomalies") or []
+        if flags:
+            payload["anomalies"] = [
+                {"type": f.get("type"), "message": f.get("message")} for f in flags
+            ]
+    except Exception:  # pragma: no cover
+        pass
+
+    # Weather summary, if synced for this bill.
+    try:
+        from .weather import weather_service
+
+        s = weather_service.get_bill_summary(db, bill.id)
+        if s is not None and s.days_observed:
+            payload["weather"] = {
+                "avg_temp_f": s.avg_temp_f,
+                "cooling_degree_days": s.total_cooling_degree_days_65,
+                "heating_degree_days": s.total_heating_degree_days_65,
+                "days_over_95f": s.days_over_95f,
+            }
+    except Exception:  # pragma: no cover
+        pass
+
+    return payload
+
+
+def _deterministic_structured(db, bill: Bill, payload: dict) -> dict:
+    """Build the 5-field structured summary deterministically (always available)."""
+    notable: list[str] = []
+    comparison = payload.get("comparison") or {}
+    if comparison.get("narrative"):
+        notable = list(comparison["narrative"][1:]) or [comparison["narrative"][0]]
+    else:
+        notable = [
+            "Only one bill is available, so period-over-period comparisons are not yet possible."
+        ]
+    for a in payload.get("anomalies", []) or []:
+        if a.get("message"):
+            notable.append(a["message"])
+
+    questions: list[str] = []
+    if payload.get("warnings"):
+        questions.append(
+            "Review the parser warning(s) on this bill and confirm the affected fields against "
+            "your statement."
+        )
+    if payload.get("weather") is None:
+        questions.append(
+            "Configure a weather location to see whether temperature explains usage changes."
+        )
+    questions.append("Confirm the meter readings and billing period match your paper/PDF statement.")
+
+    notes: list[str] = [f"Parser confidence: {bill.parser_confidence or 'unknown'}."]
+    if payload.get("warnings"):
+        notes.append(f"{len(payload['warnings'])} parser warning(s) were flagged.")
+    if payload.get("audit_status"):
+        notes.append(f"Internal-math audit status: {payload['audit_status']}.")
+
+    return {
+        "summary": deterministic_bill_summary(bill),
+        "notable_changes": notable,
+        "questions_to_investigate": questions,
+        "data_quality_notes": notes,
+        "disclaimer": DISCLAIMER,
+    }
+
+
+def _structured_user_prompt(payload: dict) -> str:
+    return (
+        "Summarize this residential utility bill using ONLY the JSON data below.\n\n"
+        "Respond with a single JSON object with EXACTLY these keys:\n"
+        '  "summary": a one-paragraph plain-language summary of this bill,\n'
+        '  "notable_changes": array of short strings (only real changes supported by the data; '
+        "if only one bill exists, say comparisons are unavailable),\n"
+        '  "questions_to_investigate": array of short strings,\n'
+        '  "data_quality_notes": array of short strings about parser confidence/warnings.\n\n'
+        "Use only the numbers provided. Do not invent weather, appliance, HVAC, EV, "
+        "irrigation, or occupancy explanations unless those fields are present.\n\n"
+        f"Bill data (JSON):\n{json.dumps(payload, indent=2, default=str)}"
+    )
+
+
+def _generate_structured_llm(payload: dict, *, model: str, host: str, timeout: float):
+    """Call Ollama for a JSON structured summary. Returns (dict, status). Never raises."""
+    try:
+        import httpx
+    except Exception:
+        return None, "unavailable"
+
+    body = {
+        "model": model,
+        "stream": False,
+        "format": "json",
+        "options": {"temperature": 0.2},
+        "messages": [
+            {"role": "system", "content": STRUCTURED_SYSTEM_PROMPT},
+            {"role": "user", "content": _structured_user_prompt(payload)},
+        ],
+    }
+    try:
+        resp = httpx.post(f"{host.rstrip('/')}/api/chat", json=body, timeout=timeout)
+    except Exception:
+        return None, "unavailable"
+    if resp.status_code != 200:
+        return None, "error"
+    try:
+        content = (resp.json().get("message") or {}).get("content", "")
+        parsed = json.loads(content)
+    except Exception:
+        return None, "error"
+    if not isinstance(parsed, dict):
+        return None, "error"
+    return parsed, "ok"
+
+
+def generate_structured_summary(db, bill: Bill, *, force_llm: bool = False) -> dict:
+    """Return the structured 5-field summary + provenance.
+
+    Always computes the deterministic summary first (the source of truth). When the local
+    LLM is enabled (or ``force_llm``) it asks Ollama to rephrase into the same JSON shape;
+    any failure falls back to deterministic. The LLM only ever sees the redacted payload.
+    """
+    settings = get_settings()
+    payload = build_structured_payload(db, bill)
+    deterministic = _deterministic_structured(db, bill, payload)
+
+    result = dict(deterministic)
+    result.update({
+        "bill_id": bill.id,
+        "source": "deterministic",
+        "generated_locally": False,
+        "llm_enabled": settings.ollama_enabled,
+        "llm_model": None,
+        "fallback_reason": None,
+        "source_metrics": payload,
+        "disclaimer": DISCLAIMER,
+    })
+
+    if not (settings.ollama_enabled or force_llm):
+        result["fallback_reason"] = "Local LLM is disabled."
+        return result
+    if not settings.ollama_enabled and force_llm:
+        result["fallback_reason"] = "Local LLM is disabled (ENABLE_LOCAL_LLM=false)."
+        return result
+
+    model = ollama_runtime.get_active_model()
+    parsed, status = _generate_structured_llm(
+        payload, model=model, host=settings.ollama_host, timeout=settings.ollama_timeout_seconds
+    )
+    if status != "ok" or parsed is None:
+        result["fallback_reason"] = (
+            "Local model unavailable." if status == "unavailable" else "Local model returned no usable output."
+        )
+        return result
+
+    # Merge validated keys from the LLM; keep deterministic values for anything missing/blank.
+    for key in _STRUCTURED_KEYS:
+        val = parsed.get(key)
+        if key == "summary":
+            if isinstance(val, str) and val.strip():
+                result[key] = val.strip()
+        else:
+            if isinstance(val, list) and val:
+                result[key] = [str(x) for x in val]
+    result["source"] = "local_llm"
+    result["generated_locally"] = True
+    result["llm_model"] = model
+    result["disclaimer"] = DISCLAIMER  # always our disclaimer, never the model's
+    return result

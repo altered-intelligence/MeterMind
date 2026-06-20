@@ -62,12 +62,48 @@ class Settings(BaseSettings):
             "ENABLE_COSERV_PORTAL_CONNECTOR", "HUI_ENABLE_COSERV_PORTAL_CONNECTOR"
         ),
     )
-    enable_browser_automation: bool = False
+    enable_browser_automation: bool = Field(
+        default=False, validation_alias="ENABLE_BROWSER_AUTOMATION"
+    )
+    # Whether encrypted SmartHub session cookies may be persisted (only if the user opts in).
+    # Off by default; no automation exists yet, so this is purely forward-looking.
+    allow_session_cookie_storage: bool = Field(
+        default=False, validation_alias="ALLOW_SESSION_COOKIE_STORAGE"
+    )
+
+    # Local privacy mode. When true, no external/outbound calls are made (live weather,
+    # geocoding) and sensitive export is blocked — only local features (incl. local Ollama)
+    # are allowed. OFF by default to preserve existing behavior; recommended ON for privacy.
+    privacy_mode_local_only: bool = Field(
+        default=False, validation_alias="PRIVACY_MODE_LOCAL_ONLY"
+    )
 
     # Local-LLM (Ollama) connection details. Gated by enable_local_llm.
-    ollama_model: str = Field(default="llama3.1", validation_alias="OLLAMA_MODEL")
-    ollama_host: str = Field(default="http://127.0.0.1:11434", validation_alias="OLLAMA_HOST")
-    ollama_timeout_seconds: float = Field(default=60.0, validation_alias="OLLAMA_TIMEOUT_SECONDS")
+    ollama_model: str = Field(
+        default="llama3.1", validation_alias=AliasChoices("OLLAMA_MODEL", "LLM_MODEL")
+    )
+    ollama_host: str = Field(
+        default="http://127.0.0.1:11434",
+        validation_alias=AliasChoices("OLLAMA_HOST", "OLLAMA_BASE_URL"),
+    )
+    ollama_timeout_seconds: float = Field(
+        default=60.0,
+        validation_alias=AliasChoices("OLLAMA_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"),
+    )
+
+    # Weather provider: "open-meteo" (live, key-less HTTP) or "mock" (deterministic/offline).
+    weather_provider: str = Field(default="open-meteo", validation_alias="WEATHER_PROVIDER")
+    weather_timeout_seconds: float = Field(
+        default=30.0, validation_alias="WEATHER_TIMEOUT_SECONDS"
+    )
+    # ZIP/postal geocoder: "zippopotam" (live, key-less HTTP) or "mock" (deterministic/offline).
+    geocoder: str = Field(default="zippopotam", validation_alias="GEOCODER")
+
+    # Allow exports to include sensitive fields (account last4, redacted address) when the
+    # caller also passes include_sensitive=true. OFF by default — exports are scrubbed.
+    allow_sensitive_export: bool = Field(
+        default=False, validation_alias="ALLOW_SENSITIVE_EXPORT"
+    )
 
     @property
     def ollama_enabled(self) -> bool:

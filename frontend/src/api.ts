@@ -117,12 +117,32 @@ export interface FieldCorrection {
   created_at: string | null;
 }
 
+export interface ParserRun {
+  id: number;
+  bill_id: number;
+  provider_name: string;
+  parser_version: string | null;
+  parser_schema_version: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  status: string;
+  warning_count: number;
+  error_code: string | null;
+  error_message: string | null;
+  parse_duration_ms: number | null;
+  trigger: string | null;
+}
+
 export interface Bill {
   id: number;
   created_at: string | null;
   provider_name: string;
   parser_version: string | null;
+  parser_schema_version?: string | null;
   parser_confidence: Confidence;
+  parsed_at?: string | null;
+  parse_duration_ms?: number | null;
+  parser_runs?: ParserRun[];
   bill_date: string | null;
   due_date: string | null;
   billing_period_start: string | null;
@@ -302,6 +322,254 @@ export interface ImportBatch {
   items: ImportBatchItem[];
 }
 
+export interface ParserInfo {
+  provider_name: string;
+  parser_version: string;
+  schema_version: string;
+  description: string;
+  is_latest: boolean;
+}
+export interface ProviderParsers {
+  provider_name: string;
+  latest_version: string;
+  schema_version: string;
+  versions: ParserInfo[];
+}
+export interface CorrectionImpact {
+  field_path: string;
+  still_applies: boolean;
+  note: string;
+}
+export interface ReprocessResult {
+  success: boolean;
+  bill_id: number;
+  parser_run: ParserRun;
+  previous_parser_version: string | null;
+  previous_parser_schema_version: string | null;
+  updated_bill: Bill;
+  new_audit_result: AuditResult;
+  correction_warnings: CorrectionImpact[];
+  warnings: string[];
+}
+
+export type ChangeDirection = "increased" | "decreased" | "unchanged" | "unavailable";
+export interface ComparisonMetric {
+  key: string;
+  label: string;
+  group: "account" | "electric" | "gas";
+  current_value: Money;
+  previous_value: Money;
+  absolute_change: Money;
+  percent_change: string | null; // percentage points, e.g. "8.2" = +8.2%
+  direction: ChangeDirection;
+  normalized: boolean;
+  unit: string;
+}
+export interface ComparisonNarrative {
+  headline: string;
+  lines: string[];
+}
+export interface BillComparison {
+  status: "ok" | "insufficient_history";
+  bill_id: number | null;
+  previous_bill_id: number | null;
+  current_bill_date: string | null;
+  previous_bill_date: string | null;
+  current_billing_days: number | null;
+  previous_billing_days: number | null;
+  billing_days_changed: boolean;
+  metrics: ComparisonMetric[];
+  narrative: ComparisonNarrative;
+  message: string;
+}
+
+export interface WeatherLocation {
+  id: number;
+  label: string | null;
+  latitude: number;
+  longitude: number;
+  timezone: string;
+  created_at: string | null;
+}
+export interface BillWeatherSummary {
+  bill_id: number;
+  weather_location_id: number;
+  service_start_date: string | null;
+  service_end_date: string | null;
+  days_observed: number;
+  avg_temp_f: number | null;
+  avg_min_temp_f: number | null;
+  avg_max_temp_f: number | null;
+  total_precipitation_inches: number | null;
+  total_heating_degree_days_65: number | null;
+  total_cooling_degree_days_65: number | null;
+  days_over_95f: number;
+  days_over_100f: number;
+  days_below_32f: number;
+  created_at: string | null;
+}
+export interface WeatherNormalization {
+  status: "ok" | "unavailable";
+  bill_id: number | null;
+  kwh_used: Money;
+  kwh_per_day: Money;
+  total_cooling_degree_days_65: number | null;
+  kwh_per_cooling_degree_day: Money;
+  electric_usage_vs_cdd_context: string;
+  ccf_used: Money;
+  ccf_per_day: Money;
+  total_heating_degree_days_65: number | null;
+  gas_ccf_per_heating_degree_day: Money;
+  gas_usage_vs_hdd_context: string;
+  message: string;
+}
+export interface BillWeather {
+  summary: BillWeatherSummary | null;
+  normalization: WeatherNormalization;
+}
+export interface WeatherNormalizedPoint {
+  bill_id: number;
+  bill_date: string | null;
+  avg_temp_f: number | null;
+  kwh_per_day: Money;
+  cooling_degree_days: number | null;
+  kwh_per_cooling_degree_day: Money;
+  ccf_per_day: Money;
+  heating_degree_days: number | null;
+  gas_ccf_per_heating_degree_day: Money;
+}
+export interface WeatherNormalizedAnalytics {
+  status: "ok" | "unavailable";
+  points: WeatherNormalizedPoint[];
+  message: string;
+}
+
+export type ForecastConfidence = "low" | "medium_low" | "medium" | "high";
+export interface ForecastComponent {
+  key: string;
+  label: string;
+  method: string;
+  value: Money;
+  unit: string;
+  inputs: Record<string, any>;
+  note: string;
+}
+export interface BillForecast {
+  status: "ok" | "insufficient_history";
+  utility_account_id: number | null;
+  bills_analyzed: number;
+  rolling_window: number;
+  expected_billing_days: number;
+  forecast_start_date: string | null;
+  forecast_end_date: string | null;
+  projected_total_bill: Money;
+  projected_electric_total: Money;
+  projected_gas_total: Money;
+  projected_kwh: Money;
+  projected_ccf: Money;
+  projected_average_cost_per_day: Money;
+  confidence: ForecastConfidence;
+  components: ForecastComponent[];
+  explanation: string;
+  assumptions: string[];
+  warnings: string[];
+  weather_context: string | null;
+  message: string;
+}
+
+export interface SummaryExplanation {
+  bill_id: number;
+  summary: string;
+  notable_changes: string[];
+  questions_to_investigate: string[];
+  data_quality_notes: string[];
+  disclaimer: string;
+  source: "deterministic" | "local_llm";
+  generated_locally: boolean;
+  llm_enabled: boolean;
+  llm_model: string | null;
+  fallback_reason: string | null;
+  source_metrics: Record<string, any>;
+}
+export interface BillSummaryWithExplanation extends BillSummaryResponse {
+  explanation: SummaryExplanation;
+}
+
+export interface PrivacyStatus {
+  privacy_mode_local_only: boolean;
+  external_calls_allowed: boolean;
+  integrations: Record<string, { enabled?: boolean; provider?: string; external: boolean }>;
+  sensitive_export_allowed: boolean;
+  telemetry: boolean;
+  cloud_sync: boolean;
+}
+export interface AuditEvent {
+  id: number;
+  user_id: number | null;
+  event_type: string;
+  object_type: string | null;
+  object_id: number | null;
+  created_at: string | null;
+  metadata: Record<string, any>;
+}
+
+export interface InvestigationQuestion {
+  question_id: string;
+  category: "electric" | "gas" | "billing" | "parser" | "weather" | "future_integration";
+  severity: "info" | "low" | "medium" | "high";
+  question: string;
+  why_it_matters: string;
+  related_metrics: string[];
+  required_future_integration: string | null;
+  status: "answerable_now" | "needs_more_history" | "needs_future_integration";
+}
+export interface InvestigationQuestionSet {
+  bill_id: number | null;
+  questions: InvestigationQuestion[];
+  generated_at: string | null;
+}
+
+export interface ConnectorStatus {
+  provider: string;
+  state: "disabled" | "planned" | "needs_login" | "connected" | "blocked" | "error";
+  enabled: boolean;
+  browser_automation_enabled: boolean;
+  session_cookie_storage_allowed: boolean;
+  message: string;
+  capabilities: Record<string, boolean>;
+  manual_upload_recommended: boolean;
+}
+
+export interface LatestInsights {
+  status: "ok" | "no_bills";
+  bill: Bill | null;
+  comparison: BillComparison | null;
+  audit: AuditResult | null;
+  rate_breakdown: RateBreakdown | null;
+  anomalies: { anomalies: Anomaly[]; reliable?: boolean; warnings?: string[] } | null;
+  weather: WeatherNormalization | null;
+  forecast: BillForecast | null;
+  questions: InvestigationQuestion[];
+  parser: {
+    parser_version: string | null;
+    parser_schema_version: string | null;
+    parser_confidence: string | null;
+    parsed_at: string | null;
+    warnings: ParserWarning[];
+  } | null;
+  warnings: string[];
+  data_quality: {
+    status: string;
+    bill_count?: number;
+    has_history: boolean;
+    weather_available?: boolean;
+    forecast_available?: boolean;
+    parser_confidence?: string | null;
+    audit_status?: string | null;
+    sections_available: string[];
+  };
+}
+
 export interface AssistantStatus {
   enabled: boolean;
   model: string | null;
@@ -368,6 +636,8 @@ export const api = {
   getBillJson: (id: number) => request<Bill>(`/bills/${id}/json`),
   getBillDebug: (id: number) => request<DebugView>(`/bills/${id}/debug`),
   getBillAudit: (id: number) => request<AuditResult>(`/bills/${id}/audit`),
+  billComparison: (id: number) => request<BillComparison>(`/bills/${id}/comparison`),
+  latestComparison: () => request<BillComparison>("/analytics/latest-comparison"),
   rateBreakdown: (id: number) => request<RateBreakdown>(`/bills/${id}/rate-breakdown`),
   rateBreakdownTrends: () => request<RateTrendPoint[]>("/analytics/rate-breakdown-trends"),
   getCorrections: (id: number) => request<CorrectionsResponse>(`/bills/${id}/corrections`),
@@ -390,11 +660,58 @@ export const api = {
   },
   listImportBatches: () => request<ImportBatch[]>("/import-batches"),
   getImportBatch: (id: number) => request<ImportBatch>(`/import-batches/${id}`),
+  listParsers: () => request<ProviderParsers[]>("/parsers"),
+  getProviderParsers: (provider: string) => request<ProviderParsers>(`/parsers/${provider}`),
+  getProviderLatest: (provider: string) => request<ParserInfo>(`/parsers/${provider}/latest`),
+  reprocessBill: (id: number, targetParserVersion?: string) =>
+    request<ReprocessResult>(`/bills/${id}/reprocess`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        targetParserVersion ? { target_parser_version: targetParserVersion } : {}
+      ),
+    }),
+  getWeatherLocation: () => request<WeatherLocation | null>("/weather/location"),
+  setWeatherLocation: (body: {
+    latitude?: number;
+    longitude?: number;
+    zip_code?: string;
+    country?: string;
+    label?: string;
+    timezone?: string;
+  }) =>
+    request<WeatherLocation>("/weather/location", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  syncBillWeather: (id: number) =>
+    request<BillWeather>(`/bills/${id}/weather/sync`, { method: "POST" }),
+  getBillWeather: (id: number) => request<BillWeather>(`/bills/${id}/weather`),
+  weatherNormalized: () => request<WeatherNormalizedAnalytics>("/analytics/weather-normalized"),
+  /** Absolute URL for a download endpoint (backend sets Content-Disposition: attachment). */
+  exportUrl: (path: string) => `${API_BASE}${path}`,
+  forecastNextBill: () => request<BillForecast>("/forecast/next-bill"),
+  forecast: (expectedBillingDays?: number) =>
+    request<BillForecast>(
+      `/forecast${expectedBillingDays ? `?expected_billing_days=${expectedBillingDays}` : ""}`
+    ),
   analyticsSummary: () => request<AnalyticsSummary>("/analytics/summary"),
   analyticsElectric: () => request<any>("/analytics/electric"),
   analyticsGas: () => request<any>("/analytics/gas"),
   insights: () => request<Insights>("/analytics/insights"),
-  billSummary: (id: number) => request<BillSummaryResponse>(`/bills/${id}/summary`),
+  billSummary: (id: number) => request<BillSummaryWithExplanation>(`/bills/${id}/summary`),
+  regenerateBillSummary: (id: number) =>
+    request<{ bill_id: number; explanation: SummaryExplanation }>(
+      `/bills/${id}/summary/regenerate`,
+      { method: "POST" }
+    ),
+  latestInsights: () => request<LatestInsights>("/insights/latest"),
+  investigationQuestions: (id: number) =>
+    request<InvestigationQuestionSet>(`/bills/${id}/investigation-questions`),
+  connectorStatus: () => request<ConnectorStatus>("/connectors/coserv/status"),
+  privacyStatus: () => request<PrivacyStatus>("/privacy/status"),
+  auditEvents: (limit = 50) => request<AuditEvent[]>(`/security/audit-events?limit=${limit}`),
   assistantStatus: () => request<AssistantStatus>("/assistant/status"),
   assistantModels: () => request<ModelsInfo>("/assistant/models"),
   setAssistantModel: (model: string) =>

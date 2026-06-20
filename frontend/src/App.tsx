@@ -4,12 +4,14 @@ import Nav, { type View } from "./components/Nav";
 import BillSelector from "./components/BillSelector";
 import ErrorBanner from "./components/ErrorBanner";
 import UploadView from "./components/views/UploadView";
+import InsightsView from "./components/views/InsightsView";
 import DashboardView from "./components/views/DashboardView";
 import ServiceDetailView from "./components/views/ServiceDetailView";
 import TrendsView from "./components/views/TrendsView";
 import DebugView from "./components/views/DebugView";
 
 const TITLES: Record<View, string> = {
+  insights: "Insights",
   upload: "Upload bill",
   dashboard: "Dashboard",
   electric: "Electric service",
@@ -73,6 +75,8 @@ export default function App() {
 
   function renderView() {
     switch (view) {
+      case "insights":
+        return <InsightsView version={refreshTick} onGoUpload={() => setView("upload")} />;
       case "upload":
         return (
           <UploadView

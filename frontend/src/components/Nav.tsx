@@ -1,6 +1,7 @@
-export type View = "upload" | "dashboard" | "electric" | "gas" | "trends" | "debug";
+export type View = "insights" | "upload" | "dashboard" | "electric" | "gas" | "trends" | "debug";
 
 export const NAV_ITEMS: { id: View; label: string }[] = [
+  { id: "insights", label: "Insights" },
   { id: "dashboard", label: "Dashboard" },
   { id: "electric", label: "Electric" },
   { id: "gas", label: "Gas" },

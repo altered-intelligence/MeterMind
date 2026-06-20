@@ -20,7 +20,9 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .money import safe_div as _safe_div  # shared Decimal division guard
 
 # A usage reading is normally a whole number (kWh, CCF) but the PDF may occasionally
 # report a fractional value. ``int`` is listed first so Pydantic's smart-union keeps an
@@ -233,14 +235,6 @@ class CoservBillDerived(BaseModel):
     gas_percentage_of_bill: Optional[Decimal] = None       # 0..1
 
 
-def _safe_div(numerator, denominator, places: str = "0.0001") -> Optional[Decimal]:
-    """Decimal division guarding against ``None`` and zero denominators."""
-    if numerator is None or denominator is None:
-        return None
-    num, den = Decimal(numerator), Decimal(denominator)
-    if den == 0:
-        return None
-    return (num / den).quantize(Decimal(places))
 
 
 def compute_derived(bill: "CoservBill") -> CoservBillDerived:
@@ -452,3 +446,309 @@ class CorrectionResponse(BaseModel):
     correction: BillFieldCorrectionModel
     updated_bill: dict[str, Any] = Field(default_factory=dict)
     new_audit_result: dict[str, Any] = Field(default_factory=dict)
+
+
+# ======================================================================================
+# Parser versioning / schema registry / reprocessing
+# ======================================================================================
+
+
+class ParserInfo(BaseModel):
+    """Metadata for one registered provider parser version."""
+
+    provider_name: str
+    parser_version: str
+    schema_version: str
+    description: str = ""
+    is_latest: bool = False
+
+
+class ProviderParsers(BaseModel):
+    """All registered parser versions for a single provider."""
+
+    provider_name: str
+    latest_version: str
+    schema_version: str
+    versions: List[ParserInfo] = Field(default_factory=list)
+
+
+class ParserRunModel(BaseModel):
+    """One auditable parser execution against a bill's stored PDF."""
+
+    id: int
+    bill_id: int
+    provider_name: str
+    parser_version: Optional[str] = None
+    parser_schema_version: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    status: str
+    warning_count: int = 0
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    parse_duration_ms: Optional[int] = None
+    trigger: Optional[str] = None
+
+
+class ReprocessRequest(BaseModel):
+    """Optional body for a reprocess: pin a target parser version (defaults to latest)."""
+
+    target_parser_version: Optional[str] = None
+
+
+class CorrectionImpact(BaseModel):
+    """How an existing manual correction fared after a reprocess."""
+
+    field_path: str
+    still_applies: bool
+    note: str = ""
+
+
+class ReprocessResponse(BaseModel):
+    """Result of reprocessing a bill from its stored PDF with a (newer) parser."""
+
+    success: bool = True
+    bill_id: int
+    parser_run: ParserRunModel
+    previous_parser_version: Optional[str] = None
+    previous_parser_schema_version: Optional[str] = None
+    updated_bill: dict[str, Any] = Field(default_factory=dict)
+    new_audit_result: dict[str, Any] = Field(default_factory=dict)
+    correction_warnings: List[CorrectionImpact] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+# ======================================================================================
+# Month-over-month bill comparison (what changed vs the previous bill)
+# ======================================================================================
+
+
+class ChangeDirection(str, Enum):
+    INCREASED = "increased"
+    DECREASED = "decreased"
+    UNCHANGED = "unchanged"
+    UNAVAILABLE = "unavailable"  # a value is missing on one of the two bills
+
+
+class ComparisonMetric(BaseModel):
+    """One metric compared between the current and previous bill.
+
+    Money/usage/rate values are precision-preserving strings (Decimal-backed).
+    ``percent_change`` is in percentage points (e.g. ``"8.2"`` means +8.2%); it is ``None``
+    when the previous value is zero (division undefined) or a value is missing.
+    """
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    key: str
+    label: str
+    group: str  # account | electric | gas
+    current_value: Optional[Decimal] = None
+    previous_value: Optional[Decimal] = None
+    absolute_change: Optional[Decimal] = None
+    percent_change: Optional[Decimal] = None
+    direction: ChangeDirection = ChangeDirection.UNAVAILABLE
+    normalized: bool = False  # True for per-billing-day normalized metrics
+    unit: str = ""
+
+
+class ComparisonNarrative(BaseModel):
+    """Deterministic, anomaly-free plain-text explanation of the change."""
+
+    headline: str = ""
+    lines: List[str] = Field(default_factory=list)
+
+
+class BillComparison(BaseModel):
+    """Result of comparing a bill to the immediately previous bill for the same account."""
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    status: str = "ok"  # ok | insufficient_history
+    bill_id: Optional[int] = None
+    previous_bill_id: Optional[int] = None
+    current_bill_date: Optional[str] = None
+    previous_bill_date: Optional[str] = None
+    current_billing_days: Optional[int] = None
+    previous_billing_days: Optional[int] = None
+    billing_days_changed: bool = False
+    metrics: List[ComparisonMetric] = Field(default_factory=list)
+    narrative: ComparisonNarrative = Field(default_factory=ComparisonNarrative)
+    message: str = ""
+
+
+# ======================================================================================
+# Weather (context for usage — never used to assert causality)
+# ======================================================================================
+
+
+class WeatherLocationCreate(BaseModel):
+    """Configure the weather location. Provide either a ``zip_code`` (geocoded server-side)
+    or an explicit ``latitude``/``longitude`` pair."""
+
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    zip_code: Optional[str] = Field(default=None, max_length=16)
+    country: str = Field(default="US", max_length=2)
+    label: Optional[str] = Field(default=None, max_length=128)
+    timezone: Optional[str] = Field(default="America/Chicago", max_length=64)
+
+    @model_validator(mode="after")
+    def _require_location(self) -> "WeatherLocationCreate":
+        has_latlon = self.latitude is not None and self.longitude is not None
+        has_zip = bool(self.zip_code and self.zip_code.strip())
+        if not has_latlon and not has_zip:
+            raise ValueError("Provide either a zip_code or both latitude and longitude.")
+        return self
+
+
+class WeatherLocationModel(BaseModel):
+    id: int
+    label: Optional[str] = None
+    latitude: float
+    longitude: float
+    timezone: str
+    created_at: Optional[datetime] = None
+
+
+class BillWeatherSummaryModel(BaseModel):
+    """Weather aggregated over a bill's service period."""
+
+    bill_id: int
+    weather_location_id: int
+    service_start_date: Optional[str] = None
+    service_end_date: Optional[str] = None
+    days_observed: int = 0
+    avg_temp_f: Optional[float] = None
+    avg_min_temp_f: Optional[float] = None
+    avg_max_temp_f: Optional[float] = None
+    total_precipitation_inches: Optional[float] = None
+    total_heating_degree_days_65: Optional[float] = None
+    total_cooling_degree_days_65: Optional[float] = None
+    days_over_95f: int = 0
+    days_over_100f: int = 0
+    days_below_32f: int = 0
+    created_at: Optional[datetime] = None
+
+
+class WeatherNormalization(BaseModel):
+    """Weather-normalized usage context for one bill. Descriptive only — never causal.
+
+    Per-degree-day rates are ``None`` when the relevant degree-day total is zero (no
+    division) or when weather/usage data is missing (``status="unavailable"``)."""
+
+    status: str = "ok"  # ok | unavailable
+    bill_id: Optional[int] = None
+    # Electric vs cooling degree days
+    kwh_used: Optional[Decimal] = None
+    kwh_per_day: Optional[Decimal] = None
+    total_cooling_degree_days_65: Optional[float] = None
+    kwh_per_cooling_degree_day: Optional[Decimal] = None
+    electric_usage_vs_cdd_context: str = ""
+    # Gas vs heating degree days
+    ccf_used: Optional[Decimal] = None
+    ccf_per_day: Optional[Decimal] = None
+    total_heating_degree_days_65: Optional[float] = None
+    gas_ccf_per_heating_degree_day: Optional[Decimal] = None
+    gas_usage_vs_hdd_context: str = ""
+    message: str = ""
+
+
+class WeatherNormalizedPoint(BaseModel):
+    """One bill's point for the weather-normalized trend/scatter charts."""
+
+    bill_id: int
+    bill_date: Optional[str] = None
+    avg_temp_f: Optional[float] = None
+    kwh_per_day: Optional[Decimal] = None
+    cooling_degree_days: Optional[float] = None
+    kwh_per_cooling_degree_day: Optional[Decimal] = None
+    ccf_per_day: Optional[Decimal] = None
+    heating_degree_days: Optional[float] = None
+    gas_ccf_per_heating_degree_day: Optional[Decimal] = None
+
+
+class WeatherNormalizedAnalytics(BaseModel):
+    status: str = "ok"  # ok | unavailable
+    points: List[WeatherNormalizedPoint] = Field(default_factory=list)
+    message: str = ""
+
+
+# ======================================================================================
+# Investigation questions (deterministic, rules-based — no LLM)
+# ======================================================================================
+
+
+class InvestigationQuestion(BaseModel):
+    """One deterministic, explainable question raised by the rules engine."""
+
+    question_id: str
+    category: str  # electric | gas | billing | parser | weather | future_integration
+    severity: str  # info | low | medium | high
+    question: str
+    why_it_matters: str
+    related_metrics: List[str] = Field(default_factory=list)
+    required_future_integration: Optional[str] = None  # tesla | ecobee | rainbird | ...
+    status: str = "answerable_now"  # answerable_now | needs_more_history | needs_future_integration
+
+
+class InvestigationQuestionSet(BaseModel):
+    bill_id: Optional[int] = None
+    questions: List[InvestigationQuestion] = Field(default_factory=list)
+    generated_at: Optional[str] = None
+
+
+# ======================================================================================
+# Bill forecasting (historical projection — deterministic, no ML, no live usage)
+# ======================================================================================
+
+
+class ForecastConfidence(str, Enum):
+    LOW = "low"
+    MEDIUM_LOW = "medium_low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class ForecastComponent(BaseModel):
+    """One projection method's result + the inputs it used (for transparency)."""
+
+    key: str
+    label: str
+    method: str
+    value: Optional[Decimal] = None
+    unit: str = ""
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    note: str = ""
+
+
+class BillForecast(BaseModel):
+    """A historical-projection forecast for an upcoming/current billing cycle.
+
+    This is explicitly *not* a live-usage estimate — it projects from past bills only, and
+    says so in its assumptions."""
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    status: str = "ok"  # ok | insufficient_history
+    utility_account_id: Optional[int] = None
+    bills_analyzed: int = 0
+    rolling_window: int = 0
+    expected_billing_days: int = 30
+    forecast_start_date: Optional[str] = None
+    forecast_end_date: Optional[str] = None
+
+    projected_total_bill: Optional[Decimal] = None
+    projected_electric_total: Optional[Decimal] = None
+    projected_gas_total: Optional[Decimal] = None
+    projected_kwh: Optional[Decimal] = None
+    projected_ccf: Optional[Decimal] = None
+    projected_average_cost_per_day: Optional[Decimal] = None
+
+    confidence: ForecastConfidence = ForecastConfidence.LOW
+    components: List[ForecastComponent] = Field(default_factory=list)
+    explanation: str = ""
+    assumptions: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    weather_context: Optional[str] = None
+    message: str = ""

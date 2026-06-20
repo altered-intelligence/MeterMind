@@ -57,11 +57,25 @@ function CheckRow({ c }: { c: AuditCheck }) {
   );
 }
 
-export default function BillAuditPanel({ billId, version }: { billId: number; version: number }) {
-  const [audit, setAudit] = useState<AuditResult | null>(null);
+export default function BillAuditPanel({
+  billId,
+  version,
+  preloaded,
+}: {
+  billId: number;
+  version: number;
+  /** When provided (e.g. by the Insights page), use this instead of fetching. */
+  preloaded?: AuditResult | null;
+}) {
+  const [audit, setAudit] = useState<AuditResult | null>(preloaded ?? null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (preloaded !== undefined) {
+      setAudit(preloaded);
+      setError(preloaded === null ? "Audit is unavailable." : null);
+      return;
+    }
     let alive = true;
     setAudit(null);
     setError(null);
@@ -72,7 +86,7 @@ export default function BillAuditPanel({ billId, version }: { billId: number; ve
     return () => {
       alive = false;
     };
-  }, [billId, version]);
+  }, [billId, version, preloaded]);
 
   if (error) {
     return (

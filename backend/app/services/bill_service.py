@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -27,6 +28,7 @@ from ..crypto import (
 )
 from ..errors import DuplicateBillError
 from ..database import DEFAULT_USER_EMAIL
+from ..money import safe_div as _safe_div  # shared Decimal division guard
 from ..models import (
     Bill,
     BillSnapshot,
@@ -35,25 +37,41 @@ from ..models import (
     GasService,
     ImportBatch,
     ImportBatchItem,
+    ParserRun,
     ParserWarning,
     User,
     UtilityAccount,
 )
+from ..parsers import registry as parser_registry
 from ..parsers.coserv_pdf_parser import (
+    SCHEMA_VERSION,
     extract_text,
     parse_coserv_bill,
     redacted_debug_blocks,
 )
 from ..schemas import (
+    CorrectionImpact,
     ImportBatchItemResult,
     ImportBatchResult,
+    ParserRunModel,
+    ReprocessResponse,
     compute_derived,
 )
 from . import bill_audit_service
 from ..storage import get_storage
 
 PROVIDER = "CoServ"
+# Registry key for the CoServ parser (the registry normalizes case; bills store "CoServ").
+PROVIDER_KEY = "coserv"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB per file
+
+
+class ReprocessError(Exception):
+    """Reprocessing could not run (no stored PDF, unknown parser version, parse failure)."""
+
+    def __init__(self, message: str, *, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 logger = logging.getLogger("hui.bills")
 
@@ -85,13 +103,6 @@ def _to_dec(value) -> Optional[Decimal]:
     return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
-def _safe_div(num: Optional[Decimal], den: Optional[Decimal], places: str = "0.0001") -> Optional[Decimal]:
-    if num is None or den is None:
-        return None
-    num, den = Decimal(num), Decimal(den)
-    if den == 0:
-        return None
-    return (num / den).quantize(Decimal(places))
 
 
 # --------------------------------------------------------------------------------------
@@ -219,6 +230,176 @@ def _duplicate_reason(existing: Bill, *, by_pdf_hash: bool) -> str:
 
 
 # --------------------------------------------------------------------------------------
+# Parsed-content -> Bill (shared by initial ingest and reprocess)
+# --------------------------------------------------------------------------------------
+
+
+def _electric_from_parsed(e, derived) -> ElectricService:
+    svc = ElectricService(
+        service_rate=e.service_rate,
+        meter_number_hash=hash_sensitive_value(e.meter_number),
+        meter_number_last4=last4(e.meter_number),
+        service_start_date=e.service_start_date,
+        service_end_date=e.service_end_date,
+        billing_days=e.billing_days,
+        last_read=e.last_read,
+        current_read=e.current_read,
+        multiplier=_to_dec(e.multiplier),
+        kwh_used=_to_dec(e.kwh_used),
+        total_current_charges=_to_dec(e.total_current_charges),
+        average_kwh_per_day=derived.electric_avg_kwh_per_day,
+        effective_rate_per_kwh=derived.effective_electric_rate,
+        average_cost_per_day=derived.electric_avg_cost_per_day,
+    )
+    return svc
+
+
+def _gas_from_parsed(g, derived) -> GasService:
+    return GasService(
+        service_rate=g.service_rate,
+        meter_number_hash=hash_sensitive_value(g.meter_number),
+        meter_number_last4=last4(g.meter_number),
+        service_start_date=g.service_start_date,
+        service_end_date=g.service_end_date,
+        billing_days=g.billing_days,
+        last_read=g.last_read,
+        current_read=g.current_read,
+        multiplier=_to_dec(g.multiplier),
+        ccf_used=_to_dec(g.ccf_used),
+        total_current_charges=_to_dec(g.total_current_charges),
+        average_ccf_per_day=derived.gas_avg_ccf_per_day,
+        effective_rate_per_ccf=derived.effective_gas_rate,
+        average_cost_per_day=derived.gas_avg_cost_per_day,
+    )
+
+
+def _line_item_from_parsed(service_type: str, li) -> ChargeLineItem:
+    return ChargeLineItem(
+        service_type=service_type,
+        label=li.name,
+        quantity=_to_dec(li.quantity),
+        unit=li.unit,
+        rate=_to_dec(li.rate),
+        amount=_to_dec(li.amount),
+        is_credit=li.amount is not None and li.amount < 0,
+        raw_text=_line_raw(li.name, li.quantity, li.unit, li.rate, li.amount),
+    )
+
+
+def _fill_bill_content(bill: Bill, parsed, *, schema_version: str) -> None:
+    """Populate ``bill``'s parsed scalars, services, line items, snapshots, and warnings
+    from ``parsed``. Used by initial ingest AND reprocess.
+
+    On reprocess the existing child collections are *replaced* (delete-orphan removes the
+    old rows). Identity/provenance columns (user, account, storage, hashes, batch) and the
+    timing/run columns are managed by the caller — never touched here. Manual corrections
+    live in a separate table and are intentionally left untouched.
+    """
+    derived = compute_derived(parsed)
+    s = parsed.account_summary
+    e = parsed.electric_service
+    g = parsed.gas_service
+
+    period_start = (e.service_start_date if e else None) or (g.service_start_date if g else None)
+    period_end = (e.service_end_date if e else None) or (g.service_end_date if g else None)
+    billing_days = (e.billing_days if e else None) or (g.billing_days if g else None)
+
+    bill.bill_date = s.bill_date
+    bill.due_date = s.due_date
+    bill.billing_period_start = period_start
+    bill.billing_period_end = period_end
+    bill.billing_days = billing_days
+    bill.previous_balance = _to_dec(s.previous_balance)
+    bill.payment_received = _to_dec(s.payment_received)
+    bill.balance_forward = _to_dec(s.balance_forward)
+    bill.electric_service_total = _to_dec(s.electric_service_total)
+    bill.gas_service_total = _to_dec(s.gas_service_total)
+    bill.current_charges_total = _to_dec(s.current_charges_total)
+    bill.total_amount_due = _to_dec(s.total_amount_due)
+    bill.amount_due_after_due_date = _to_dec(s.amount_due_after_due_date)
+    bill.autopay_status = s.autopay_status
+    bill.parser_version = parsed.parser_version
+    bill.parser_confidence = parsed.parser_confidence.value
+    bill.parser_schema_version = schema_version
+
+    # Replace child collections (delete-orphan cleans up any prior rows on reprocess).
+    bill.electric_service = _electric_from_parsed(e, derived) if e is not None else None
+    bill.gas_service = _gas_from_parsed(g, derived) if g is not None else None
+
+    line_items: list[ChargeLineItem] = []
+    if e is not None:
+        line_items += [_line_item_from_parsed("electric", li) for li in e.line_items]
+    if g is not None:
+        line_items += [_line_item_from_parsed("gas", li) for li in g.line_items]
+    bill.line_items = line_items
+
+    snap = parsed.snapshot
+    snapshots: list[BillSnapshot] = []
+    if snap is not None:
+        snapshots.append(
+            BillSnapshot(
+                service_type="electric",
+                average_cost_per_day_this_month=snap.electric_average_cost_per_day_this_month,
+                average_cost_per_day_last_month=snap.electric_average_cost_per_day_last_month,
+                average_cost_per_day_one_year_ago=snap.electric_average_cost_per_day_one_year_ago,
+            )
+        )
+        snapshots.append(
+            BillSnapshot(
+                service_type="gas",
+                average_cost_per_day_this_month=snap.gas_average_cost_per_day_this_month,
+                average_cost_per_day_last_month=snap.gas_average_cost_per_day_last_month,
+                average_cost_per_day_one_year_ago=snap.gas_average_cost_per_day_one_year_ago,
+            )
+        )
+    bill.snapshots = snapshots
+
+    bill.warnings = [
+        ParserWarning(
+            warning_code=w.code,
+            warning_message=w.message + (f" [{w.field}]" if w.field else ""),
+            severity=w.severity,
+        )
+        for w in parsed.warnings
+    ]
+
+
+def _record_parser_run(
+    db: Session,
+    bill_id: int,
+    *,
+    provider_name: str,
+    parser_version: Optional[str],
+    schema_version: Optional[str],
+    started_at: datetime,
+    completed_at: datetime,
+    status: str,
+    warning_count: int,
+    parse_duration_ms: Optional[int],
+    trigger: str,
+    error_code: Optional[str] = None,
+    error_message: Optional[str] = None,
+) -> ParserRun:
+    """Persist one auditable parser execution. Caller commits."""
+    run = ParserRun(
+        bill_id=bill_id,
+        provider_name=provider_name,
+        parser_version=parser_version,
+        parser_schema_version=schema_version,
+        started_at=started_at,
+        completed_at=completed_at,
+        status=status,
+        warning_count=warning_count,
+        parse_duration_ms=parse_duration_ms,
+        trigger=trigger,
+        error_code=error_code,
+        error_message=error_message,
+    )
+    db.add(run)
+    return run
+
+
+# --------------------------------------------------------------------------------------
 # Ingestion
 # --------------------------------------------------------------------------------------
 
@@ -247,12 +428,13 @@ def ingest_bill(
     storage = get_storage()
     key = storage.save(file_bytes, suffix=".pdf")
     try:
+        started_at = datetime.now(timezone.utc)
+        t0 = time.perf_counter()
         parsed = parse_coserv_bill(storage.path(key))
         parsed_text_hash = _sha256(extract_text(storage.path(key)).encode("utf-8"))
-        derived = compute_derived(parsed)
+        parse_duration_ms = int((time.perf_counter() - t0) * 1000)
+        completed_at = datetime.now(timezone.utc)
         s = parsed.account_summary
-        e = parsed.electric_service
-        g = parsed.gas_service
 
         acct = _get_or_create_account(db, user, s.account_number, s.service_address)
 
@@ -270,126 +452,39 @@ def ingest_bill(
                 _duplicate_reason(dup, by_pdf_hash=False), existing_bill_id=dup.id
             )
 
-        period_start = (e.service_start_date if e else None) or (g.service_start_date if g else None)
-        period_end = (e.service_end_date if e else None) or (g.service_end_date if g else None)
-        billing_days = (e.billing_days if e else None) or (g.billing_days if g else None)
-
         bill = Bill(
             user_id=user.id,
             utility_account_id=acct.id if acct else None,
             provider_name=PROVIDER,
-            bill_date=s.bill_date,
-            due_date=s.due_date,
-            billing_period_start=period_start,
-            billing_period_end=period_end,
-            billing_days=billing_days,
-            previous_balance=_to_dec(s.previous_balance),
-            payment_received=_to_dec(s.payment_received),
-            balance_forward=_to_dec(s.balance_forward),
-            electric_service_total=_to_dec(s.electric_service_total),
-            gas_service_total=_to_dec(s.gas_service_total),
-            current_charges_total=_to_dec(s.current_charges_total),
-            total_amount_due=_to_dec(s.total_amount_due),
-            amount_due_after_due_date=_to_dec(s.amount_due_after_due_date),
-            autopay_status=s.autopay_status,
             pdf_storage_path=key,
-            parser_version=parsed.parser_version,
-            parser_confidence=parsed.parser_confidence.value,
             pdf_sha256_hash=pdf_hash,
             parsed_text_sha256_hash=parsed_text_hash,
             source_filename=filename,
             import_batch_id=import_batch_id,
+            parsed_at=completed_at,
+            parse_duration_ms=parse_duration_ms,
         )
-
-        if e is not None:
-            bill.electric_service = ElectricService(
-                service_rate=e.service_rate,
-                meter_number_hash=hash_sensitive_value(e.meter_number),
-                meter_number_last4=last4(e.meter_number),
-                service_start_date=e.service_start_date,
-                service_end_date=e.service_end_date,
-                billing_days=e.billing_days,
-                last_read=e.last_read,
-                current_read=e.current_read,
-                multiplier=_to_dec(e.multiplier),
-                kwh_used=_to_dec(e.kwh_used),
-                total_current_charges=_to_dec(e.total_current_charges),
-                average_kwh_per_day=derived.electric_avg_kwh_per_day,
-                effective_rate_per_kwh=derived.effective_electric_rate,
-                average_cost_per_day=derived.electric_avg_cost_per_day,
-            )
-            for li in e.line_items:
-                bill.line_items.append(
-                    ChargeLineItem(
-                        service_type="electric",
-                        label=li.name,
-                        quantity=_to_dec(li.quantity),
-                        unit=li.unit,
-                        rate=_to_dec(li.rate),
-                        amount=_to_dec(li.amount),
-                        is_credit=li.amount is not None and li.amount < 0,
-                        raw_text=_line_raw(li.name, li.quantity, li.unit, li.rate, li.amount),
-                    )
-                )
-
-        if g is not None:
-            bill.gas_service = GasService(
-                service_rate=g.service_rate,
-                meter_number_hash=hash_sensitive_value(g.meter_number),
-                meter_number_last4=last4(g.meter_number),
-                service_start_date=g.service_start_date,
-                service_end_date=g.service_end_date,
-                billing_days=g.billing_days,
-                last_read=g.last_read,
-                current_read=g.current_read,
-                multiplier=_to_dec(g.multiplier),
-                ccf_used=_to_dec(g.ccf_used),
-                total_current_charges=_to_dec(g.total_current_charges),
-                average_ccf_per_day=derived.gas_avg_ccf_per_day,
-                effective_rate_per_ccf=derived.effective_gas_rate,
-                average_cost_per_day=derived.gas_avg_cost_per_day,
-            )
-            for li in g.line_items:
-                bill.line_items.append(
-                    ChargeLineItem(
-                        service_type="gas",
-                        label=li.name,
-                        quantity=_to_dec(li.quantity),
-                        unit=li.unit,
-                        rate=_to_dec(li.rate),
-                        amount=_to_dec(li.amount),
-                        is_credit=li.amount is not None and li.amount < 0,
-                        raw_text=_line_raw(li.name, li.quantity, li.unit, li.rate, li.amount),
-                    )
-                )
-
-        snap = parsed.snapshot
-        if snap is not None:
-            bill.snapshots.append(
-                BillSnapshot(
-                    service_type="electric",
-                    average_cost_per_day_this_month=snap.electric_average_cost_per_day_this_month,
-                    average_cost_per_day_last_month=snap.electric_average_cost_per_day_last_month,
-                    average_cost_per_day_one_year_ago=snap.electric_average_cost_per_day_one_year_ago,
-                )
-            )
-            bill.snapshots.append(
-                BillSnapshot(
-                    service_type="gas",
-                    average_cost_per_day_this_month=snap.gas_average_cost_per_day_this_month,
-                    average_cost_per_day_last_month=snap.gas_average_cost_per_day_last_month,
-                    average_cost_per_day_one_year_ago=snap.gas_average_cost_per_day_one_year_ago,
-                )
-            )
-
-        for w in parsed.warnings:
-            msg = w.message + (f" [{w.field}]" if w.field else "")
-            bill.warnings.append(
-                ParserWarning(warning_code=w.code, warning_message=msg, severity=w.severity)
-            )
+        # Populate parsed scalars, services, line items, snapshots, warnings.
+        _fill_bill_content(bill, parsed, schema_version=SCHEMA_VERSION)
 
         db.add(bill)
         db.flush()  # assign bill.id + persist children so the audit can read them
+
+        run_status = "completed_with_warnings" if parsed.warnings else "completed"
+        _record_parser_run(
+            db,
+            bill.id,
+            provider_name=PROVIDER,
+            parser_version=parsed.parser_version,
+            schema_version=SCHEMA_VERSION,
+            started_at=started_at,
+            completed_at=completed_at,
+            status=run_status,
+            warning_count=len(parsed.warnings),
+            parse_duration_ms=parse_duration_ms,
+            trigger="ingest",
+        )
+
         # Run the deterministic audit. Never blocks ingestion — log and continue on error.
         try:
             bill_audit_service.attach_audit(bill)
@@ -412,6 +507,192 @@ def ingest_bill(
         db.rollback()
         storage.delete(key)
         raise
+
+
+# --------------------------------------------------------------------------------------
+# Reprocessing (re-run a (newer) parser over a bill's stored PDF)
+# --------------------------------------------------------------------------------------
+
+
+def _parser_run_model(run: ParserRun) -> ParserRunModel:
+    return ParserRunModel(
+        id=run.id,
+        bill_id=run.bill_id,
+        provider_name=run.provider_name,
+        parser_version=run.parser_version,
+        parser_schema_version=run.parser_schema_version,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        status=run.status,
+        warning_count=run.warning_count,
+        error_code=run.error_code,
+        error_message=run.error_message,
+        parse_duration_ms=run.parse_duration_ms,
+        trigger=run.trigger,
+    )
+
+
+def parser_runs_for_bill(db: Session, bill_id: int) -> list[ParserRun]:
+    return list(
+        db.scalars(
+            select(ParserRun)
+            .where(ParserRun.bill_id == bill_id)
+            .order_by(ParserRun.id.asc())
+        ).all()
+    )
+
+
+def _correction_impacts(bill: Bill) -> list[CorrectionImpact]:
+    """For each distinct corrected field_path, check whether it still resolves against the
+    freshly-parsed bill content. A path that no longer resolves (e.g. a line item that the
+    new parser no longer emits) is flagged so the user can review it; the correction row is
+    never deleted."""
+    from . import correction_service  # local import avoids an import cycle
+
+    impacts: list[CorrectionImpact] = []
+    seen: set[str] = set()
+    for c in sorted(bill.corrections, key=lambda x: x.id):
+        if c.field_path in seen:
+            continue
+        seen.add(c.field_path)
+        try:
+            spec = correction_service._resolve(c.field_path)
+            spec.get(bill)  # raises if the path is gone on the new content
+            impacts.append(CorrectionImpact(field_path=c.field_path, still_applies=True))
+        except correction_service.CorrectionError as exc:
+            impacts.append(
+                CorrectionImpact(field_path=c.field_path, still_applies=False, note=str(exc))
+            )
+    return impacts
+
+
+def reprocess_bill(
+    db: Session, bill_id: int, *, target_parser_version: Optional[str] = None
+) -> Optional[ReprocessResponse]:
+    """Re-run a parser over the bill's stored PDF and update its current parsed data.
+
+    Non-destructive in the ways that matter: manual corrections (a separate table) are
+    preserved and re-applied on read; every run is recorded in ``parser_runs`` for an
+    auditable history; the prior parser version/schema are returned for reference. Raises
+    :class:`ReprocessError` (no stored PDF / unknown version / parse failure)."""
+    bill = get_bill(db, bill_id)
+    if bill is None:
+        return None
+    if not bill.pdf_storage_path:
+        raise ReprocessError("This bill has no stored PDF to reprocess.", status_code=409)
+    path = get_storage().path(bill.pdf_storage_path)
+    if not Path(path).exists():
+        raise ReprocessError("The stored PDF for this bill is no longer available.", status_code=409)
+
+    try:
+        parser = (
+            parser_registry.get_parser(PROVIDER_KEY, target_parser_version)
+            if target_parser_version
+            else parser_registry.get_latest_parser(PROVIDER_KEY)
+        )
+    except parser_registry.UnknownParserError as exc:
+        raise ReprocessError(str(exc), status_code=400)
+
+    prev_version = bill.parser_version
+    prev_schema = bill.parser_schema_version
+
+    started_at = datetime.now(timezone.utc)
+    t0 = time.perf_counter()
+    try:
+        parsed = parser.parse(path)
+        parsed_text_hash = _sha256(parser.extract_text(path).encode("utf-8"))
+    except Exception:
+        # Record the failed attempt for auditability, then surface a clean error.
+        parse_duration_ms = int((time.perf_counter() - t0) * 1000)
+        completed_at = datetime.now(timezone.utc)
+        logger.exception("reprocess: parser failed for bill %s", bill_id)  # stack only, no PII
+        _record_parser_run(
+            db,
+            bill_id,
+            provider_name=parser.provider_name,
+            parser_version=parser.parser_version,
+            schema_version=parser.schema_version,
+            started_at=started_at,
+            completed_at=completed_at,
+            status="failed",
+            warning_count=0,
+            parse_duration_ms=parse_duration_ms,
+            trigger="reprocess",
+            error_code="parser_failed",
+            error_message="The stored PDF could not be reparsed.",
+        )
+        db.commit()
+        raise ReprocessError("The stored PDF could not be reparsed.", status_code=422)
+
+    parse_duration_ms = int((time.perf_counter() - t0) * 1000)
+    completed_at = datetime.now(timezone.utc)
+
+    # Update the bill's current parsed data in place. Clear the old children and flush the
+    # DELETEs FIRST: the electric/gas services have a UNIQUE(bill_id), so reassigning them
+    # in one flush would try to INSERT the replacement before deleting the original and trip
+    # the constraint. Corrections live in a separate table and are untouched.
+    bill.electric_service = None
+    bill.gas_service = None
+    bill.line_items = []
+    bill.snapshots = []
+    bill.warnings = []
+    db.flush()
+    _fill_bill_content(bill, parsed, schema_version=parser.schema_version)
+    bill.parsed_text_sha256_hash = parsed_text_hash
+    bill.parsed_at = completed_at
+    bill.parse_duration_ms = parse_duration_ms
+
+    # Which corrections still line up with the new content? (Corrections are preserved.)
+    impacts = _correction_impacts(bill)
+
+    run_status = "completed_with_warnings" if parsed.warnings else "completed"
+    run = _record_parser_run(
+        db,
+        bill_id,
+        provider_name=parser.provider_name,
+        parser_version=parser.parser_version,
+        schema_version=parser.schema_version,
+        started_at=started_at,
+        completed_at=completed_at,
+        status=run_status,
+        warning_count=len(parsed.warnings),
+        parse_duration_ms=parse_duration_ms,
+        trigger="reprocess",
+    )
+    db.flush()
+    run_model = _parser_run_model(run)
+    db.commit()
+
+    # Recompute the effective (corrected) bill + re-run and persist the audit on it.
+    from . import correction_service  # local import avoids an import cycle
+
+    effective, corrections, corrected_paths = correction_service.get_effective_bill_data(db, bill_id)
+    new_audit = bill_audit_service.run_audit(effective)
+    correction_service._persist_audit(db, bill_id, new_audit)
+
+    warnings: list[str] = [
+        f"Correction on '{i.field_path}' may no longer apply: {i.note}"
+        for i in impacts
+        if not i.still_applies
+    ]
+
+    logger.info(
+        "bill reprocessed: bill=%s parser_version=%s->%s confidence=%s warnings=%d corrections=%d",
+        bill_id, prev_version, parser.parser_version, parsed.parser_confidence.value,
+        len(parsed.warnings), len(impacts),
+    )
+
+    return ReprocessResponse(
+        success=True,
+        bill_id=bill_id,
+        parser_run=run_model,
+        previous_parser_version=prev_version,
+        previous_parser_schema_version=prev_schema,
+        updated_bill=correction_service.serialize_effective_bill(effective, corrections, corrected_paths),
+        new_audit_result=new_audit.model_dump(mode="json"),
+        correction_warnings=impacts,
+        warnings=warnings,
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -550,6 +831,7 @@ _EAGER = (
     selectinload(Bill.utility_account),
     selectinload(Bill.audit),
     selectinload(Bill.corrections),
+    selectinload(Bill.parser_runs),
 )
 
 
@@ -572,6 +854,8 @@ def bills_for_user(db: Session, user_id: int, *, apply_corrections: bool = True)
 
         for bill in ordered:
             corrections = list(bill.corrections)
+            if not corrections:
+                continue  # no overlay needed; stored derived values are already correct
             db.expunge(bill)  # detach before mutating so originals stay safe
             correction_service.apply_corrections(bill, corrections)
     return ordered
@@ -771,7 +1055,14 @@ def serialize_bill(bill: Bill) -> dict[str, Any]:
         "created_at": bill.created_at.isoformat() if bill.created_at else None,
         "provider_name": bill.provider_name,
         "parser_version": bill.parser_version,
+        "parser_schema_version": bill.parser_schema_version,
         "parser_confidence": bill.parser_confidence,
+        "parsed_at": bill.parsed_at.isoformat() if bill.parsed_at else None,
+        "parse_duration_ms": bill.parse_duration_ms,
+        "parser_runs": [
+            _parser_run_model(r).model_dump(mode="json")
+            for r in sorted(getattr(bill, "parser_runs", []) or [], key=lambda r: r.id)
+        ],
         "bill_date": iso(bill.bill_date),
         "due_date": iso(bill.due_date),
         "billing_period_start": iso(bill.billing_period_start),

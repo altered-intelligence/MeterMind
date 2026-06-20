@@ -30,6 +30,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
@@ -137,7 +138,15 @@ class Bill(Base):
 
     pdf_storage_path: Mapped[Optional[str]] = mapped_column(String(512))
     parser_version: Mapped[Optional[str]] = mapped_column(String(32))
+    # Output-schema contract version (separate from parser_version, which tracks extraction
+    # logic). Lets a CoServ layout change be detected/reprocessed. Set on ingest + reprocess.
+    parser_schema_version: Mapped[Optional[str]] = mapped_column(String(48))
     parser_confidence: Mapped[Optional[str]] = mapped_column(String(16))
+    # When the *current* parsed data was produced, and how long that parse took. Updated on
+    # every (re)process so the latest run's provenance lives on the bill; the full history is
+    # in ``parser_runs``.
+    parsed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    parse_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
     # Deduplication + provenance. Hashes let us reject byte-identical re-uploads (pdf hash)
     # and re-extracted-but-identical content (text hash); source_filename + import_batch_id
     # record where a bill came from during a bulk import.
@@ -171,6 +180,12 @@ class Bill(Base):
         back_populates="bill", uselist=False, cascade="all, delete-orphan"
     )
     corrections: Mapped[List["BillFieldCorrection"]] = relationship(
+        back_populates="bill", cascade="all, delete-orphan"
+    )
+    parser_runs: Mapped[List["ParserRun"]] = relationship(
+        back_populates="bill", cascade="all, delete-orphan", order_by="ParserRun.id"
+    )
+    weather_summaries: Mapped[List["BillWeatherSummary"]] = relationship(
         back_populates="bill", cascade="all, delete-orphan"
     )
 
@@ -339,6 +354,37 @@ class ImportBatchItem(Base):
     bill: Mapped[Optional["Bill"]] = relationship()
 
 
+class ParserRun(Base):
+    """One execution of a provider parser against a bill's stored PDF.
+
+    Every initial ingest and every reprocess writes a row here, giving an auditable history
+    of which parser version + output schema produced (or attempted to produce) the bill's
+    data, when, how long it took, and whether it succeeded. The bill's *current* data always
+    reflects the latest successful run; prior runs are retained here for auditability.
+    """
+
+    __tablename__ = "parser_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    bill_id: Mapped[int] = mapped_column(
+        ForeignKey("bills.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    parser_version: Mapped[Optional[str]] = mapped_column(String(32))
+    parser_schema_version: Mapped[Optional[str]] = mapped_column(String(48))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(24), nullable=False)  # completed|completed_with_warnings|failed
+    warning_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[Optional[str]] = mapped_column(String(64))
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    parse_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    # Distinguishes the first parse from later reprocesses in the UI/history.
+    trigger: Mapped[Optional[str]] = mapped_column(String(16))  # ingest|reprocess|backfill
+
+    bill: Mapped["Bill"] = relationship(back_populates="parser_runs")
+
+
 class BillFieldCorrection(Base):
     """A user-supplied correction of one parsed field, preserving the original value.
 
@@ -365,3 +411,118 @@ class BillFieldCorrection(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     bill: Mapped["Bill"] = relationship(back_populates="corrections")
+
+
+# ======================================================================================
+# Weather (context for usage — never used to assert causality)
+# ======================================================================================
+
+
+class SecurityAuditEvent(Base):
+    """Append-only audit trail of security-relevant actions.
+
+    Records *what happened* (event/object) for accountability — never sensitive values.
+    ``metadata_json`` holds only non-sensitive context (counts, filenames, statuses).
+    """
+
+    __tablename__ = "security_audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    object_type: Mapped[Optional[str]] = mapped_column(String(32))
+    object_id: Mapped[Optional[int]] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class WeatherLocation(Base):
+    """A geographic point (lat/lon) a user has configured for weather context.
+
+    No address/PII is stored here — only coordinates, a free-text label, and an IANA
+    timezone. Weather observations are cached per location/date so the same day is never
+    fetched twice.
+    """
+
+    __tablename__ = "weather_locations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    label: Mapped[Optional[str]] = mapped_column(String(128))
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), default="America/Chicago")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    user: Mapped["User"] = relationship()
+    observations: Mapped[List["WeatherDailyObservation"]] = relationship(
+        back_populates="location", cascade="all, delete-orphan"
+    )
+
+
+class WeatherDailyObservation(Base):
+    """One day of cached weather for a location. The (location, date) pair is unique so a
+    date is fetched from the provider at most once."""
+
+    __tablename__ = "weather_daily_observations"
+    __table_args__ = (
+        UniqueConstraint("weather_location_id", "date", name="uq_weather_obs_loc_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    weather_location_id: Mapped[int] = mapped_column(
+        ForeignKey("weather_locations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    avg_temp_f: Mapped[Optional[float]] = mapped_column(Float)
+    min_temp_f: Mapped[Optional[float]] = mapped_column(Float)
+    max_temp_f: Mapped[Optional[float]] = mapped_column(Float)
+    avg_humidity: Mapped[Optional[float]] = mapped_column(Float)
+    precipitation_inches: Mapped[Optional[float]] = mapped_column(Float)
+    heating_degree_days_65: Mapped[Optional[float]] = mapped_column(Float)
+    cooling_degree_days_65: Mapped[Optional[float]] = mapped_column(Float)
+    source: Mapped[Optional[str]] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    location: Mapped["WeatherLocation"] = relationship(back_populates="observations")
+
+
+class BillWeatherSummary(Base):
+    """Weather aggregated over a bill's service period — the enrichment attached to a bill.
+
+    One row per (bill, location); re-syncing upserts it. Degree-day totals and threshold-day
+    counts give downstream normalization the context it needs without storing daily rows.
+    """
+
+    __tablename__ = "bill_weather_summaries"
+    __table_args__ = (
+        UniqueConstraint("bill_id", "weather_location_id", name="uq_bill_weather_loc"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    bill_id: Mapped[int] = mapped_column(
+        ForeignKey("bills.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    weather_location_id: Mapped[int] = mapped_column(
+        ForeignKey("weather_locations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    service_start_date: Mapped[Optional[date]] = mapped_column(Date)
+    service_end_date: Mapped[Optional[date]] = mapped_column(Date)
+    days_observed: Mapped[int] = mapped_column(Integer, default=0)
+    avg_temp_f: Mapped[Optional[float]] = mapped_column(Float)
+    avg_min_temp_f: Mapped[Optional[float]] = mapped_column(Float)
+    avg_max_temp_f: Mapped[Optional[float]] = mapped_column(Float)
+    total_precipitation_inches: Mapped[Optional[float]] = mapped_column(Float)
+    total_heating_degree_days_65: Mapped[Optional[float]] = mapped_column(Float)
+    total_cooling_degree_days_65: Mapped[Optional[float]] = mapped_column(Float)
+    days_over_95f: Mapped[int] = mapped_column(Integer, default=0)
+    days_over_100f: Mapped[int] = mapped_column(Integer, default=0)
+    days_below_32f: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    bill: Mapped["Bill"] = relationship(back_populates="weather_summaries")
+    location: Mapped["WeatherLocation"] = relationship()

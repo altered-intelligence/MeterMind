@@ -41,16 +41,32 @@ class Base(DeclarativeBase):
     pass
 
 
+def _alembic_managed() -> bool:
+    """True if this DB is already under Alembic control (a version is stamped).
+
+    When it is, we must NOT ``create_all`` — doing so from a reloading dev server would
+    pre-create a newly-added model's table and make the next ``alembic upgrade`` fail with
+    "table already exists" (leaving the migration partially applied). Once Alembic owns the
+    schema, defer all schema changes to migrations.
+    """
+    try:
+        with engine.connect() as conn:
+            return conn.exec_driver_sql("SELECT 1 FROM alembic_version LIMIT 1").fetchone() is not None
+    except Exception:
+        return False
+
+
 def init_db() -> None:
     """Initialize the schema for local dev and seed the default user.
 
-    On SQLite we create tables directly (convenient for local dev). On other backends
-    (PostgreSQL) the schema is owned by Alembic (``alembic upgrade head``) — we do NOT
-    auto-create, to avoid masking migration drift.
+    On a *fresh* SQLite DB we create tables directly (convenient for local dev). Once the DB
+    is Alembic-managed (a version is stamped) we defer to migrations and skip create_all, so
+    a reloading dev server never races a pending migration. On non-SQLite backends the schema
+    is always owned by Alembic.
     """
     from . import models  # noqa: F401
 
-    if _is_sqlite:
+    if _is_sqlite and not _alembic_managed():
         Base.metadata.create_all(bind=engine)
 
     # MVP is single-user and unauthenticated; ensure a default user exists. Tolerant if

@@ -33,18 +33,21 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from .schemas import CorrectionRequest
+from .schemas import CorrectionRequest, ReprocessRequest, WeatherLocationCreate
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .connectors.coserv_portal_connector import get_portal_connector
+from .connectors.coserv_portal import get_connector as get_coserv_connector
+from .connectors.coserv_portal.exceptions import PortalConnectorError
 from .database import get_session, init_db
 from .errors import ApiError, DuplicateBillError, ErrorCode, register_error_handlers
 from .logging_config import configure_logging
@@ -52,14 +55,26 @@ from .parsers import coserv_pdf_parser
 from .services import (
     analytics_service,
     assistant_service,
+    audit_log_service,
     bill_audit_service,
+    bill_comparison_service,
     bill_service,
     correction_service,
+    export_service,
+    forecasting_service,
+    insights_service,
+    investigation_question_service,
     llm_summary_service,
     ollama_runtime,
+    parser_service,
     rate_breakdown_service,
+    weather_normalization_service,
 )
+from .services.bill_service import ReprocessError
 from .services.correction_service import CorrectionError
+from .services.weather import weather_service
+from .services.weather.geocoding import GeocodingError
+from .services.weather.weather_service import WeatherUnavailable
 
 logger = logging.getLogger("hui")
 
@@ -100,6 +115,44 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Conservative defaults for a single-user local app. The CSP is written so the built SPA
+# works even when served from the same origin as the API: scripts/styles/images/fonts from
+# 'self' (Vite emits hashed asset files; 'unsafe-inline' on style-src covers Tailwind's
+# injected styles), XHR/fetch limited to 'self', and framing fully locked down.
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self' data:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'"
+    ),
+}
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    for key, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(key, value)
+    return response
+
+
+@app.get("/api/privacy/status")
+def privacy_status() -> dict:
+    """Current privacy mode + which integrations are external (no secrets)."""
+    from .security import privacy
+
+    return privacy.integration_status()
+
 
 @app.get("/api/health")
 def health() -> dict:
@@ -113,6 +166,28 @@ def version() -> dict:
         "app_version": settings.app_version,
         "parser_version": coserv_pdf_parser.PARSER_VERSION,
     }
+
+
+@app.get("/api/parsers")
+def list_parsers() -> list[dict]:
+    """All registered provider parsers + versions (newest marked ``is_latest``)."""
+    return parser_service.list_providers()
+
+
+@app.get("/api/parsers/{provider}")
+def get_provider_parsers(provider: str) -> dict:
+    payload = parser_service.get_provider(provider)
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"No parser registered for '{provider}'.")
+    return payload
+
+
+@app.get("/api/parsers/{provider}/latest")
+def get_provider_latest_parser(provider: str) -> dict:
+    payload = parser_service.get_provider_latest(provider)
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"No parser registered for '{provider}'.")
+    return payload
 
 
 @app.post("/api/bills/upload", status_code=201)
@@ -144,6 +219,11 @@ async def upload_bill(
         logger.exception("Bill ingestion failed")  # stack trace only, no PDF content
         raise ApiError(ErrorCode.PARSER_FAILED, "Could not parse the uploaded bill.", 422)
 
+    audit_log_service.log_event(
+        db, audit_log_service.BILL_UPLOADED,
+        user_id=row.user_id, object_type="bill", object_id=row.id,
+        metadata={"confidence": row.parser_confidence, "warnings": len(row.warnings)},
+    )
     return bill_service.serialize_bill(row)
 
 
@@ -221,7 +301,7 @@ def create_correction(
         raise HTTPException(status_code=404, detail="Bill not found.")
     user = bill_service.get_or_create_default_user(db)
     try:
-        return correction_service.create_correction(
+        result = correction_service.create_correction(
             db,
             bill_id,
             field_path=payload.field_path,
@@ -231,6 +311,72 @@ def create_correction(
         )
     except CorrectionError as exc:
         raise ApiError(ErrorCode.VALIDATION_FAILED, str(exc), exc.status_code)
+    # Audit the action — field_path only, never the corrected value (may be PII-adjacent).
+    audit_log_service.log_event(
+        db, audit_log_service.CORRECTION_CREATED,
+        user_id=user.id, object_type="bill", object_id=bill_id,
+        metadata={"field_path": payload.field_path},
+    )
+    return result
+
+
+@app.post("/api/bills/{bill_id}/reprocess")
+def reprocess_bill(
+    bill_id: int,
+    payload: ReprocessRequest | None = None,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Re-run the latest (or a pinned) parser over the bill's stored PDF.
+
+    Updates the bill's current parsed data, records an auditable parser run, re-runs the
+    audit, and preserves manual corrections (warning if any no longer line up). The original
+    PDF and correction history are never destroyed."""
+    target = payload.target_parser_version if payload else None
+    audit_log_service.log_event(
+        db, audit_log_service.PARSER_REPROCESS_STARTED,
+        object_type="bill", object_id=bill_id, metadata={"target_version": target},
+    )
+    try:
+        result = bill_service.reprocess_bill(db, bill_id, target_parser_version=target)
+    except ReprocessError as exc:
+        raise ApiError(ErrorCode.PARSER_FAILED, str(exc), exc.status_code)
+    except SQLAlchemyError:
+        logger.exception("Database error during reprocess")  # no PDF content / PII
+        raise ApiError(ErrorCode.DATABASE_ERROR, "Could not reprocess the bill.", 500)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Bill not found.")
+    audit_log_service.log_event(
+        db, audit_log_service.PARSER_REPROCESS_COMPLETED,
+        object_type="bill", object_id=bill_id,
+        metadata={"parser_version": result.parser_run.parser_version},
+    )
+    return result.model_dump(mode="json")
+
+
+@app.get("/api/bills/{bill_id}/comparison")
+def bill_comparison(bill_id: int, db: Session = Depends(get_session)) -> dict:
+    """What changed on this bill vs the immediately previous bill for the same account.
+
+    Usage and cost are normalized by billing days. Uses corrected values when present."""
+    result = bill_comparison_service.compare_bill(db, bill_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Bill not found.")
+    return result.model_dump(mode="json")
+
+
+@app.get("/api/analytics/latest-comparison")
+def latest_comparison(db: Session = Depends(get_session)) -> dict:
+    """What changed on the most recent bill vs the one before it (same account)."""
+    return bill_comparison_service.latest_comparison(db).model_dump(mode="json")
+
+
+@app.get("/api/bills/{bill_id}/investigation-questions")
+def bill_investigation_questions(bill_id: int, db: Session = Depends(get_session)) -> dict:
+    """Deterministic, rules-based questions to investigate for a bill (no LLM)."""
+    qs = investigation_question_service.build_questions(db, bill_id)
+    if qs is None:
+        raise HTTPException(status_code=404, detail="Bill not found.")
+    return qs.model_dump(mode="json")
 
 
 @app.get("/api/bills/{bill_id}/json")
@@ -269,12 +415,36 @@ def bill_rate_breakdown(bill_id: int, db: Session = Depends(get_session)) -> dic
 
 @app.get("/api/bills/{bill_id}/summary")
 def bill_summary(bill_id: int, db: Session = Depends(get_session)) -> dict:
-    """Deterministic summary, plus an optional local-LLM (Ollama) summary of redacted
-    metrics when ``OLLAMA_ENABLED=true`` and the model is reachable."""
+    """Deterministic summary + a structured explanation (5 fields).
+
+    The ``explanation`` is computed deterministically here (fast, non-blocking); when the
+    local LLM is enabled the client can call ``/summary/regenerate`` for an LLM-phrased
+    version. Every number always comes from the deterministic pipeline."""
     row = bill_service.get_bill(db, bill_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Bill not found.")
-    return llm_summary_service.summarize_bill(db, row)
+    data = llm_summary_service.summarize_bill(db, row)
+    data["explanation"] = llm_summary_service.generate_structured_summary(db, row)
+    return data
+
+
+@app.post("/api/bills/{bill_id}/summary/regenerate")
+def regenerate_bill_summary(bill_id: int, db: Session = Depends(get_session)) -> dict:
+    """(Re)generate the structured summary, using the local LLM when enabled.
+
+    Falls back to the deterministic summary if Ollama is disabled or unavailable — the
+    request never fails. The LLM receives only the redacted metrics payload."""
+    row = bill_service.get_bill(db, bill_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Bill not found.")
+    explanation = llm_summary_service.generate_structured_summary(db, row, force_llm=True)
+    if explanation.get("generated_locally"):
+        audit_log_service.log_event(
+            db, audit_log_service.LOCAL_LLM_SUMMARY_GENERATED,
+            user_id=row.user_id, object_type="bill", object_id=bill_id,
+            metadata={"model": explanation.get("llm_model")},
+        )
+    return {"bill_id": bill_id, "explanation": explanation}
 
 
 @app.get("/api/bills/{bill_id}/summary/stream")
@@ -310,6 +480,9 @@ def bill_summary_stream(bill_id: int, db: Session = Depends(get_session)) -> Str
 def delete_bill(bill_id: int, db: Session = Depends(get_session)) -> None:
     if not bill_service.delete_bill(db, bill_id):
         raise HTTPException(status_code=404, detail="Bill not found.")
+    audit_log_service.log_event(
+        db, audit_log_service.BILL_DELETED, object_type="bill", object_id=bill_id
+    )
 
 
 @app.get("/api/analytics/summary")
@@ -334,11 +507,224 @@ def analytics_rate_breakdown_trends(db: Session = Depends(get_session)) -> list[
     return rate_breakdown_service.trends(bills)
 
 
+@app.get("/api/insights/latest")
+def insights_latest(db: Session = Depends(get_session)) -> dict:
+    """Unified latest-bill insights aggregated from existing services (partial on failure)."""
+    return insights_service.latest_insights(db)
+
+
 @app.get("/api/analytics/insights")
 def analytics_insights(db: Session = Depends(get_session)) -> dict:
     """Deterministic insights: summary, metrics, warnings, anomalies, recommendations."""
     user = bill_service.get_or_create_default_user(db)
     return analytics_service.build_insights(db, user.id)
+
+
+# --- Weather context + normalization ---
+
+
+@app.post("/api/weather/location", status_code=201)
+def set_weather_location(
+    payload: WeatherLocationCreate, db: Session = Depends(get_session)
+) -> dict:
+    """Configure the weather location from a ZIP code or explicit lat/lon. Replaces any
+    existing one."""
+    user = bill_service.get_or_create_default_user(db)
+    latitude, longitude = payload.latitude, payload.longitude
+    label = payload.label
+    timezone_name = payload.timezone or "America/Chicago"
+
+    # Geocode the ZIP when coordinates weren't supplied directly.
+    if (latitude is None or longitude is None) and payload.zip_code:
+        try:
+            res = weather_service.resolve_zip(payload.zip_code, payload.country)
+        except GeocodingError as exc:
+            raise ApiError(ErrorCode.VALIDATION_FAILED, str(exc), exc.status_code)
+        latitude, longitude = res.latitude, res.longitude
+        label = label or res.label
+        if not payload.timezone and res.timezone:
+            timezone_name = res.timezone
+
+    try:
+        loc = weather_service.set_location(
+            db, user,
+            latitude=latitude, longitude=longitude,
+            label=label, timezone_name=timezone_name,
+        )
+    except WeatherUnavailable as exc:
+        raise ApiError(ErrorCode.VALIDATION_FAILED, str(exc), exc.status_code)
+    return weather_service.serialize_location(loc)
+
+
+@app.get("/api/weather/location")
+def get_weather_location(db: Session = Depends(get_session)) -> dict | None:
+    """The configured weather location, or ``null`` if none is set yet."""
+    user = bill_service.get_or_create_default_user(db)
+    loc = weather_service.get_location(db, user)
+    return weather_service.serialize_location(loc) if loc else None
+
+
+@app.post("/api/bills/{bill_id}/weather/sync", status_code=201)
+def sync_bill_weather(bill_id: int, db: Session = Depends(get_session)) -> dict:
+    """Fetch/cache weather over the bill's service period and (re)build its summary."""
+    bill = bill_service.get_bill(db, bill_id)
+    if bill is None:
+        raise HTTPException(status_code=404, detail="Bill not found.")
+    user = bill_service.get_or_create_default_user(db)
+    loc = weather_service.get_location(db, user)
+    if loc is None:
+        raise ApiError(
+            ErrorCode.VALIDATION_FAILED,
+            "No weather location configured. Set one via POST /api/weather/location first.",
+            409,
+        )
+    audit_log_service.log_event(
+        db, audit_log_service.WEATHER_SYNC_STARTED,
+        user_id=user.id, object_type="bill", object_id=bill_id,
+    )
+    try:
+        summary = weather_service.sync_bill_weather(db, bill, loc)
+    except WeatherUnavailable as exc:
+        raise ApiError(ErrorCode.VALIDATION_FAILED, str(exc), exc.status_code)
+    except Exception:  # noqa: BLE001 — provider/network failure, never leak internals/PII
+        logger.exception("weather sync failed for bill %s", bill_id)
+        raise ApiError(ErrorCode.PARSER_FAILED, "Could not fetch weather for this bill.", 502)
+    return {
+        "summary": weather_service.serialize_summary(summary),
+        "normalization": weather_normalization_service.normalize_bill(db, bill_id).model_dump(mode="json"),
+    }
+
+
+@app.get("/api/bills/{bill_id}/weather")
+def get_bill_weather(bill_id: int, db: Session = Depends(get_session)) -> dict:
+    """The bill's stored weather summary + weather-normalized usage context."""
+    norm = weather_normalization_service.normalize_bill(db, bill_id)
+    if norm is None:
+        raise HTTPException(status_code=404, detail="Bill not found.")
+    summary = weather_service.get_bill_summary(db, bill_id)
+    return {
+        "summary": weather_service.serialize_summary(summary) if summary else None,
+        "normalization": norm.model_dump(mode="json"),
+    }
+
+
+@app.get("/api/analytics/weather-normalized")
+def analytics_weather_normalized(db: Session = Depends(get_session)) -> dict:
+    """Per-bill weather-normalized points (kWh/day vs CDD, CCF/day vs HDD) for charts."""
+    return weather_normalization_service.normalized_series(db).model_dump(mode="json")
+
+
+# --- Reporting & export ---
+
+
+def _attachment(content, media_type: str, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _audit_export(db: Session, fmt: str, *, include_sensitive: bool = False, bill_id: int | None = None) -> None:
+    audit_log_service.log_event(
+        db, audit_log_service.BILL_EXPORTED,
+        object_type="bill" if bill_id else "export", object_id=bill_id,
+        metadata={"format": fmt, "include_sensitive": export_service.sensitive_allowed(include_sensitive)},
+    )
+
+
+@app.get("/api/export/bills.json")
+def export_bills_json(include_sensitive: bool = False, db: Session = Depends(get_session)) -> Response:
+    data = export_service.bills_json(db, include_sensitive=include_sensitive)
+    _audit_export(db, "bills.json", include_sensitive=include_sensitive)
+    return _attachment(json.dumps(data, indent=2), "application/json", "bills.json")
+
+
+@app.get("/api/export/bills.csv")
+def export_bills_csv(db: Session = Depends(get_session)) -> Response:
+    content = export_service.bills_csv(db)
+    _audit_export(db, "bills.csv")
+    return _attachment(content, "text/csv", "bills.csv")
+
+
+@app.get("/api/export/electric.csv")
+def export_electric_csv(db: Session = Depends(get_session)) -> Response:
+    content = export_service.electric_csv(db)
+    _audit_export(db, "electric.csv")
+    return _attachment(content, "text/csv", "electric.csv")
+
+
+@app.get("/api/export/gas.csv")
+def export_gas_csv(db: Session = Depends(get_session)) -> Response:
+    content = export_service.gas_csv(db)
+    _audit_export(db, "gas.csv")
+    return _attachment(content, "text/csv", "gas.csv")
+
+
+@app.get("/api/export/charges.csv")
+def export_charges_csv(db: Session = Depends(get_session)) -> Response:
+    content = export_service.charges_csv(db)
+    _audit_export(db, "charges.csv")
+    return _attachment(content, "text/csv", "charges.csv")
+
+
+@app.get("/api/bills/{bill_id}/export.json")
+def export_one_bill_json(
+    bill_id: int, include_sensitive: bool = False, db: Session = Depends(get_session)
+) -> Response:
+    data = export_service.bill_json(db, bill_id, include_sensitive=include_sensitive)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Bill not found.")
+    _audit_export(db, "bill.json", include_sensitive=include_sensitive, bill_id=bill_id)
+    return _attachment(json.dumps(data, indent=2), "application/json", f"bill-{bill_id}.json")
+
+
+@app.get("/api/bills/{bill_id}/report.pdf")
+def export_bill_report_pdf(
+    bill_id: int, include_sensitive: bool = False, db: Session = Depends(get_session)
+) -> Response:
+    pdf = export_service.bill_report_pdf(db, bill_id, include_sensitive=include_sensitive)
+    if pdf is None:
+        raise HTTPException(status_code=404, detail="Bill not found.")
+    _audit_export(db, "report.pdf", include_sensitive=include_sensitive, bill_id=bill_id)
+    return _attachment(pdf, "application/pdf", f"bill-{bill_id}-report.pdf")
+
+
+@app.get("/api/security/audit-events")
+def list_audit_events(limit: int = 200, db: Session = Depends(get_session)) -> list[dict]:
+    """Recent security audit events (newest first). Contains no sensitive values."""
+    return [audit_log_service.serialize_event(e) for e in audit_log_service.list_events(db, limit=limit)]
+
+
+# --- Forecasting (historical projection — no ML, no live usage) ---
+
+
+@app.get("/api/forecast/next-bill")
+def forecast_next_bill(
+    utility_account_id: int | None = None, db: Session = Depends(get_session)
+) -> dict:
+    """Project the next bill using the historical-average cycle length."""
+    return forecasting_service.next_bill_forecast(
+        db, utility_account_id=utility_account_id
+    ).model_dump(mode="json")
+
+
+@app.get("/api/forecast")
+def forecast(
+    expected_billing_days: int | None = None,
+    forecast_start_date: date | None = None,
+    forecast_end_date: date | None = None,
+    utility_account_id: int | None = None,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Project a bill for an expected cycle length (or explicit date range)."""
+    return forecasting_service.forecast(
+        db,
+        expected_billing_days=expected_billing_days,
+        forecast_start_date=forecast_start_date,
+        forecast_end_date=forecast_end_date,
+        utility_account_id=utility_account_id,
+    ).model_dump(mode="json")
 
 
 # --- Assistant chat (optional local LLM over ALL the user's structured data) ---
@@ -436,7 +822,35 @@ def assistant_chat(req: ChatRequest, db: Session = Depends(get_session)) -> Stre
     )
 
 
-# --- Future CoServ SmartHub connector (placeholder; disabled in this build) ---
+# --- CoServ SmartHub portal connector (architecture/stubs; no automation) ---
+
+
+@app.get("/api/connectors/coserv/status")
+def coserv_connector_status() -> dict:
+    """Connector capability/status. Always safe to call (no automation runs)."""
+    return get_coserv_connector().status().model_dump(mode="json")
+
+
+@app.post("/api/connectors/coserv/start-login")
+def coserv_connector_start_login(db: Session = Depends(get_session)) -> dict:
+    """Placeholder. Returns 501 — disabled (with the manual-upload message) or planned."""
+    connector = get_coserv_connector()
+    user = bill_service.get_or_create_default_user(db)
+    try:
+        return connector.start_interactive_login(user.id).model_dump(mode="json")
+    except PortalConnectorError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@app.post("/api/connectors/coserv/disconnect")
+def coserv_connector_disconnect(db: Session = Depends(get_session)) -> dict:
+    """Safe no-op logout/disconnect (there is never an active session in this build)."""
+    user = bill_service.get_or_create_default_user(db)
+    get_coserv_connector().logout(user.id)
+    return {"status": "disconnected"}
+
+
+# --- Legacy SmartHub placeholder endpoints (kept for back-compatibility) ---
 
 
 @app.get("/api/portal/status")

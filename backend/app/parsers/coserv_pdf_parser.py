@@ -69,6 +69,10 @@ except ModuleNotFoundError:  # Allow ``python coserv_pdf_parser.py`` direct exec
     )
 
 PARSER_VERSION = "coserv-v0.1.0"
+# The shape/contract of the parsed CoservBill. Bumped only when the output schema changes
+# (new/removed/renamed fields), independently of PARSER_VERSION (which tracks extraction
+# logic). Stored on each bill + parser run so a layout change is auditable.
+SCHEMA_VERSION = "coserv-bill-schema-v1"
 
 # --------------------------------------------------------------------------------------
 # Low-level token patterns / normalizers
