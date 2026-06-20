@@ -285,6 +285,21 @@ material is committed.
 
 ---
 
+## Releasing
+
+Add a new `## [x.y.z] — Title` section at the top of `CHANGELOG.md`, commit, then:
+
+```bash
+./scripts/release.sh 0.3.0        # tags v0.3.0 + publishes a GitHub release from the changelog
+./scripts/release.sh 0.3.0 --pre  # mark as a prerelease
+```
+
+The script checks you're on a clean `main`, that `gh` is authenticated, and that the top
+CHANGELOG entry matches the version, then pushes `main`, tags the commit, and creates the
+GitHub release with the changelog section as notes.
+
+---
+
 ## Extending beyond CoServ
 
 The parser and schemas are CoServ-specific by design. The parser **registry**
