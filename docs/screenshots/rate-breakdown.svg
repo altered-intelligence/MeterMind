@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 770" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <rect width="1000" height="770" fill="#ffffff"/>
+  <rect x="8" y="8" width="984" height="754" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+
+  <text x="32" y="48" font-size="17" font-weight="700" letter-spacing="0.5" fill="#1e293b">RATE &amp; FEE BREAKDOWN</text>
+  <line x1="8" y1="68" x2="992" y2="68" stroke="#eef2f6"/>
+  <text x="32" y="98" font-size="13" fill="#64748b">Where each service dollar goes — fixed vs. variable usage vs. adjustments, fees, and taxes — and how the true</text>
+  <text x="32" y="116" font-size="13" fill="#64748b">effective rate (all charges) compares to the raw energy/commodity rate.</text>
+
+  <text x="32" y="152" font-size="18" font-weight="700" fill="#1e293b">Electric</text>
+  <text x="118" y="152" font-size="14" fill="#94a3b8">$198.20 total</text>
+  <rect x="852" y="136" width="116" height="26" rx="13" fill="#dcfce7"/>
+  <text x="910" y="153" font-size="13" font-weight="600" fill="#15803d" text-anchor="middle">✓ reconciles</text>
+
+  <!-- top metric cards -->
+  <g>
+    <rect x="32" y="172" width="222" height="62" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="48" y="196" font-size="12" fill="#64748b">True effective rate</text>
+    <text x="48" y="222" font-size="19" font-weight="700" fill="#0f172a">$0.1287 <tspan font-size="12" font-weight="400" fill="#94a3b8">/kWh</tspan></text>
+
+    <rect x="264" y="172" width="222" height="62" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="280" y="196" font-size="12" fill="#64748b">Energy-only rate</text>
+    <text x="280" y="222" font-size="19" font-weight="700" fill="#0f172a">$0.1140 <tspan font-size="12" font-weight="400" fill="#94a3b8">/kWh</tspan></text>
+
+    <rect x="496" y="172" width="222" height="62" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="512" y="196" font-size="12" fill="#64748b">Fixed cost share</text>
+    <text x="512" y="222" font-size="19" font-weight="700" fill="#0f172a">7.1%</text>
+
+    <rect x="728" y="172" width="240" height="62" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="744" y="196" font-size="12" fill="#64748b">Taxes &amp; fees share</text>
+    <text x="744" y="222" font-size="19" font-weight="700" fill="#0f172a">5.2%</text>
+  </g>
+
+  <!-- category cards (3 x 2) -->
+  <g font-size="12">
+    <!-- row 1 -->
+    <rect x="32" y="252" width="196" height="104" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+    <circle cx="50" cy="278" r="6" fill="#0ea5e9"/><text x="64" y="282" font-weight="600" fill="#334155">Fixed charges</text>
+    <text x="48" y="312" font-size="20" font-weight="700" fill="#0f172a">$14.00</text>
+    <text x="48" y="334" fill="#94a3b8">7.1% of total</text>
+
+    <rect x="238" y="252" width="196" height="104" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+    <circle cx="256" cy="278" r="6" fill="#6366f1"/><text x="270" y="282" font-weight="600" fill="#334155">Variable energy ch…</text>
+    <text x="254" y="312" font-size="20" font-weight="700" fill="#0f172a">$175.60</text>
+    <text x="254" y="334" fill="#94a3b8">88.6% of total</text>
+
+    <rect x="444" y="252" width="196" height="104" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+    <circle cx="462" cy="278" r="6" fill="#10b981"/><text x="476" y="282" font-weight="600" fill="#334155">Credits &amp; adjustm…</text>
+    <text x="460" y="312" font-size="20" font-weight="700" fill="#059669">-$1.80</text>
+    <text x="460" y="334" fill="#94a3b8">-0.9% of total</text>
+
+    <!-- row 2 -->
+    <rect x="32" y="368" width="196" height="104" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+    <circle cx="50" cy="394" r="6" fill="#f59e0b"/><text x="64" y="398" font-weight="600" fill="#334155">Local fees</text>
+    <text x="48" y="428" font-size="20" font-weight="700" fill="#0f172a">$7.10</text>
+    <text x="48" y="450" fill="#94a3b8">3.6% of total</text>
+
+    <rect x="238" y="368" width="196" height="104" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+    <circle cx="256" cy="394" r="6" fill="#ef4444"/><text x="270" y="398" font-weight="600" fill="#334155">Taxes</text>
+    <text x="254" y="428" font-size="20" font-weight="700" fill="#0f172a">$2.85</text>
+    <text x="254" y="450" fill="#94a3b8">1.4% of total</text>
+
+    <rect x="444" y="368" width="196" height="104" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+    <circle cx="462" cy="394" r="6" fill="#94a3b8"/><text x="476" y="398" font-weight="600" fill="#334155">Optional / rounding</text>
+    <text x="460" y="428" font-size="20" font-weight="700" fill="#0f172a">$0.45</text>
+    <text x="460" y="450" fill="#94a3b8">0.2% of total</text>
+  </g>
+
+  <!-- composition chart -->
+  <g>
+    <rect x="656" y="252" width="312" height="220" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="676" y="278" font-size="12" font-weight="700" letter-spacing="0.5" fill="#64748b">CATEGORY COMPOSITION</text>
+    <!-- baseline -->
+    <line x1="772" y1="294" x2="772" y2="446" stroke="#e2e8f0"/>
+    <!-- bars: scale max 175.6 -> 180px -->
+    <g font-size="9" fill="#94a3b8">
+      <text x="766" y="306" text-anchor="end">Fixed</text>
+      <rect x="772" y="298" width="14" height="13" fill="#0ea5e9"/>
+      <text x="766" y="328" text-anchor="end">Variable</text>
+      <rect x="772" y="320" width="180" height="13" fill="#6366f1"/>
+      <text x="766" y="350" text-anchor="end">Credits</text>
+      <rect x="770" y="342" width="3" height="13" fill="#10b981"/>
+      <text x="766" y="372" text-anchor="end">Local fees</text>
+      <rect x="772" y="364" width="8" height="13" fill="#f59e0b"/>
+      <text x="766" y="394" text-anchor="end">Taxes</text>
+      <rect x="772" y="386" width="4" height="13" fill="#ef4444"/>
+      <text x="766" y="416" text-anchor="end">Optional</text>
+      <rect x="772" y="408" width="1" height="13" fill="#94a3b8"/>
+    </g>
+    <g font-size="9" fill="#94a3b8" text-anchor="middle">
+      <text x="772" y="438">$0</text>
+      <text x="832" y="438">$60</text>
+      <text x="892" y="438">$120</text>
+      <text x="952" y="438">$180</text>
+    </g>
+  </g>
+
+  <!-- line-item mapping -->
+  <text x="32" y="512" font-size="12" font-weight="700" letter-spacing="0.5" fill="#64748b">LINE-ITEM MAPPING</text>
+  <rect x="32" y="524" width="936" height="216" rx="9" fill="#ffffff" stroke="#eef2f6"/>
+  <rect x="32" y="524" width="936" height="30" rx="9" fill="#f8fafc"/>
+  <text x="48" y="544" font-size="12" font-weight="600" fill="#64748b">Line item</text>
+  <text x="500" y="544" font-size="12" font-weight="600" fill="#64748b">Category</text>
+  <g font-size="13" fill="#334155">
+    <text x="48" y="578">Customer Charge</text><circle cx="506" cy="574" r="5" fill="#0ea5e9"/><text x="520" y="578">Fixed charges</text>
+    <line x1="32" y1="592" x2="968" y2="592" stroke="#f1f5f9"/>
+    <text x="48" y="616">Energy Charge</text><circle cx="506" cy="612" r="5" fill="#6366f1"/><text x="520" y="616">Variable energy charges</text>
+    <line x1="32" y1="630" x2="968" y2="630" stroke="#f1f5f9"/>
+    <text x="48" y="654">PCRF</text><circle cx="506" cy="650" r="5" fill="#10b981"/><text x="520" y="654">Credits &amp; adjustments</text>
+    <line x1="32" y1="668" x2="968" y2="668" stroke="#f1f5f9"/>
+    <text x="48" y="692">SCRF</text><circle cx="506" cy="688" r="5" fill="#10b981"/><text x="520" y="692">Credits &amp; adjustments</text>
+    <line x1="32" y1="706" x2="968" y2="706" stroke="#f1f5f9"/>
+    <text x="48" y="730">Sales Tax</text><circle cx="506" cy="726" r="5" fill="#ef4444"/><text x="520" y="730">Taxes</text>
+  </g>
+</svg>

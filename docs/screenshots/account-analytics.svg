@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 510" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <rect width="1000" height="510" fill="#ffffff"/>
+  <rect x="8" y="8" width="984" height="494" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="32" y="52" font-size="16" font-weight="700" letter-spacing="0.5" fill="#1e293b">ACCOUNT ANALYTICS</text>
+  <line x1="8" y1="74" x2="992" y2="74" stroke="#eef2f6"/>
+
+  <!-- helper styles via inline -->
+  <g>
+    <!-- Row 1 -->
+    <g>
+      <rect x="32" y="94" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="50" y="124" font-size="12" fill="#64748b">Bills tracked</text>
+      <text x="50" y="158" font-size="26" font-weight="700" fill="#0f172a">18</text>
+
+      <rect x="270" y="94" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="288" y="124" font-size="12" fill="#64748b">Latest bill</text>
+      <text x="288" y="158" font-size="26" font-weight="700" fill="#0f172a">$284.50</text>
+      <text x="288" y="182" font-size="12" fill="#94a3b8">Jun 5, 2026</text>
+
+      <rect x="508" y="94" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="526" y="124" font-size="12" fill="#64748b">Latest electric</text>
+      <text x="526" y="158" font-size="26" font-weight="700" fill="#0f172a">1,540</text>
+      <text x="526" y="182" font-size="12" fill="#94a3b8">kWh</text>
+
+      <rect x="746" y="94" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="764" y="124" font-size="12" fill="#64748b">Latest gas</text>
+      <text x="764" y="158" font-size="26" font-weight="700" fill="#0f172a">42</text>
+      <text x="764" y="182" font-size="12" fill="#94a3b8">CCF</text>
+    </g>
+
+    <!-- Row 2 -->
+    <g>
+      <rect x="32" y="226" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="50" y="256" font-size="12" fill="#64748b">MoM total bill</text>
+      <text x="50" y="290" font-size="20" font-weight="700" fill="#e11d48">▲ +$24.00 (+9.2%)</text>
+
+      <rect x="270" y="226" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="288" y="256" font-size="12" fill="#64748b">MoM electric</text>
+      <text x="288" y="290" font-size="20" font-weight="700" fill="#e11d48">▲ 118 (+8.3%)</text>
+      <text x="288" y="314" font-size="12" fill="#94a3b8">kWh</text>
+
+      <rect x="508" y="226" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="526" y="256" font-size="12" fill="#64748b">MoM gas</text>
+      <text x="526" y="290" font-size="20" font-weight="700" fill="#059669">▼ 2 (-4.0%)</text>
+      <text x="526" y="314" font-size="12" fill="#94a3b8">CCF</text>
+
+      <rect x="746" y="226" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="764" y="256" font-size="12" fill="#64748b">Avg electric rate</text>
+      <text x="764" y="290" font-size="24" font-weight="700" fill="#0f172a">$0.1287</text>
+      <text x="764" y="314" font-size="12" fill="#94a3b8">$/kWh</text>
+    </g>
+
+    <!-- Row 3 -->
+    <g>
+      <rect x="32" y="358" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="50" y="388" font-size="12" fill="#64748b">Avg gas rate</text>
+      <text x="50" y="422" font-size="24" font-weight="700" fill="#0f172a">$2.0540</text>
+      <text x="50" y="446" font-size="12" fill="#94a3b8">$/CCF</text>
+
+      <rect x="270" y="358" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="288" y="388" font-size="12" fill="#64748b">Highest bill</text>
+      <text x="288" y="422" font-size="24" font-weight="700" fill="#0f172a">$372.00</text>
+      <text x="288" y="446" font-size="12" fill="#94a3b8">Mar 5, 2026</text>
+
+      <rect x="508" y="358" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="526" y="388" font-size="12" fill="#64748b">Peak electric</text>
+      <text x="526" y="422" font-size="24" font-weight="700" fill="#0f172a">2,480</text>
+      <text x="526" y="446" font-size="12" fill="#94a3b8">kWh · Sep 5, 2025</text>
+
+      <rect x="746" y="358" width="222" height="116" rx="10" fill="#f8fafc"/>
+      <text x="764" y="388" font-size="12" fill="#64748b">Peak gas</text>
+      <text x="764" y="422" font-size="24" font-weight="700" fill="#0f172a">138</text>
+      <text x="764" y="446" font-size="12" fill="#94a3b8">CCF · Feb 6, 2025</text>
+    </g>
+  </g>
+</svg>

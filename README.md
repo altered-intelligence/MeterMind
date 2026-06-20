@@ -33,6 +33,29 @@ deterministic "questions to investigate."
 
 ---
 
+## Screenshots
+
+> No account numbers, names, service addresses, or meter numbers appear in any screen —
+> those identifiers are redacted by design and never reach the UI.
+
+**Unified Insights — latest bill at a glance**
+
+![Insights page](docs/screenshots/insights.svg)
+
+**Rate & fee breakdown** (where each service dollar goes; line-item → category mapping)
+
+![Rate and fee breakdown](docs/screenshots/rate-breakdown.svg)
+
+**Trends by billing cycle** (usage, cost/day, and effective rate for electric & gas)
+
+![Trends by billing cycle](docs/screenshots/trends.svg)
+
+**Account analytics**
+
+![Account analytics](docs/screenshots/account-analytics.svg)
+
+---
+
 ## Architecture
 
 ```

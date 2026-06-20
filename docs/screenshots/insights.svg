@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <rect width="1000" height="300" fill="#ffffff"/>
+  <!-- Header -->
+  <text x="24" y="46" font-size="30" font-weight="700" fill="#0f172a">Insights</text>
+  <!-- Data quality badge -->
+  <rect x="788" y="26" width="188" height="26" rx="13" fill="#dcfce7"/>
+  <text x="882" y="43" font-size="13" font-weight="600" fill="#15803d" text-anchor="middle">Data OK · audit pass</text>
+
+  <text x="24" y="92" font-size="20" font-weight="700" fill="#0f172a">Latest bill insights</text>
+  <text x="24" y="113" font-size="13" fill="#94a3b8">Everything about your most recent statement, in one place.</text>
+
+  <text x="24" y="150" font-size="12" font-weight="700" letter-spacing="1" fill="#64748b">AT A GLANCE</text>
+  <text x="24" y="169" font-size="12" fill="#94a3b8">Key changes vs the previous bill</text>
+
+  <!-- cards -->
+  <g>
+    <!-- card 1 -->
+    <rect x="24" y="184" width="226" height="96" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="42" y="212" font-size="11" font-weight="600" letter-spacing="0.5" fill="#64748b">TOTAL AMOUNT DUE</text>
+    <text x="42" y="246" font-size="26" font-weight="700" fill="#0f172a">$284.50</text>
+    <text x="42" y="268" font-size="12" font-weight="600" fill="#d97706">▲ increased 9.2%</text>
+
+    <!-- card 2 -->
+    <rect x="266" y="184" width="226" height="96" rx="10" fill="#f8fafc" stroke="#bae6fd"/>
+    <text x="284" y="212" font-size="11" font-weight="600" letter-spacing="0.5" fill="#64748b">AVG TOTAL COST / DAY</text>
+    <rect x="430" y="200" width="46" height="18" rx="5" fill="#e0f2fe"/>
+    <text x="453" y="213" font-size="10" font-weight="600" fill="#0284c7" text-anchor="middle">per day</text>
+    <text x="284" y="246" font-size="26" font-weight="700" fill="#0f172a">$9.18</text>
+    <text x="284" y="268" font-size="12" font-weight="600" fill="#d97706">▲ increased 6.1%</text>
+
+    <!-- card 3 -->
+    <rect x="508" y="184" width="226" height="96" rx="10" fill="#f8fafc" stroke="#bae6fd"/>
+    <text x="526" y="212" font-size="11" font-weight="600" letter-spacing="0.5" fill="#64748b">ELECTRIC USAGE / DAY</text>
+    <rect x="672" y="200" width="46" height="18" rx="5" fill="#e0f2fe"/>
+    <text x="695" y="213" font-size="10" font-weight="600" fill="#0284c7" text-anchor="middle">per day</text>
+    <text x="526" y="246" font-size="26" font-weight="700" fill="#0f172a">49.7</text>
+    <text x="526" y="268" font-size="12" font-weight="600" fill="#d97706">▲ increased 8.3%</text>
+
+    <!-- card 4 -->
+    <rect x="750" y="184" width="226" height="96" rx="10" fill="#f8fafc" stroke="#bae6fd"/>
+    <text x="768" y="212" font-size="11" font-weight="600" letter-spacing="0.5" fill="#64748b">GAS USAGE / DAY</text>
+    <rect x="914" y="200" width="46" height="18" rx="5" fill="#e0f2fe"/>
+    <text x="937" y="213" font-size="10" font-weight="600" fill="#0284c7" text-anchor="middle">per day</text>
+    <text x="768" y="246" font-size="26" font-weight="700" fill="#0f172a">1.4</text>
+    <text x="768" y="268" font-size="12" font-weight="600" fill="#059669">▼ decreased 4.0%</text>
+  </g>
+</svg>

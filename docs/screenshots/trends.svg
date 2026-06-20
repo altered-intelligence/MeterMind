@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 900" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <rect width="1000" height="900" fill="#ffffff"/>
+  <text x="24" y="36" font-size="16" font-weight="700" letter-spacing="0.5" fill="#1e293b">TRENDS BY BILLING CYCLE</text>
+
+  <!-- ELECTRIC USAGE (bars) -->
+  <g transform="translate(24,52)">
+    <rect width="466" height="250" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="16" y="30" font-size="12" font-weight="700" letter-spacing="0.5" fill="#64748b">ELECTRIC USAGE (KWH)</text>
+    <line x1="56" y1="58" x2="56" y2="228" stroke="#e2e8f0"/><line x1="56" y1="228" x2="452" y2="228" stroke="#e2e8f0"/>
+    <text x="50" y="62" font-size="9" fill="#94a3b8" text-anchor="end">2600</text><text x="50" y="231" font-size="9" fill="#94a3b8" text-anchor="end">0</text>
+    <g fill="#2b82c9">
+      <rect x="60" y="184" width="22" height="44"/><rect x="94" y="144" width="22" height="84"/><rect x="128" y="129" width="22" height="99"/><rect x="162" y="143" width="22" height="85"/><rect x="196" y="151" width="22" height="77"/><rect x="230" y="153" width="22" height="75"/><rect x="264" y="135" width="22" height="93"/><rect x="298" y="114" width="22" height="114"/><rect x="332" y="91" width="22" height="137"/><rect x="366" y="101" width="22" height="127"/><rect x="400" y="66" width="22" height="162"/><rect x="434" y="113" width="22" height="115"/>
+    </g>
+    <g font-size="9" fill="#94a3b8" text-anchor="middle"><text x="94" y="244">Dec 24</text><text x="264" y="244">Sep 25</text><text x="434" y="244">Jun 26</text></g>
+  </g>
+
+  <!-- GAS USAGE (bars) -->
+  <g transform="translate(510,52)">
+    <rect width="466" height="250" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="16" y="30" font-size="12" font-weight="700" letter-spacing="0.5" fill="#64748b">GAS USAGE (CCF)</text>
+    <line x1="56" y1="58" x2="56" y2="228" stroke="#e2e8f0"/><line x1="56" y1="228" x2="452" y2="228" stroke="#e2e8f0"/>
+    <text x="50" y="62" font-size="9" fill="#94a3b8" text-anchor="end">150</text><text x="50" y="231" font-size="9" fill="#94a3b8" text-anchor="end">0</text>
+    <g fill="#e8820e">
+      <rect x="60" y="221" width="22" height="7"/><rect x="94" y="196" width="22" height="32"/><rect x="128" y="133" width="22" height="95"/><rect x="162" y="143" width="22" height="85"/><rect x="196" y="196" width="22" height="32"/><rect x="230" y="201" width="22" height="27"/><rect x="264" y="210" width="22" height="18"/><rect x="298" y="212" width="22" height="16"/><rect x="332" y="203" width="22" height="25"/><rect x="366" y="178" width="22" height="50"/><rect x="400" y="83" width="22" height="145"/><rect x="434" y="133" width="22" height="95"/>
+    </g>
+    <g font-size="9" fill="#94a3b8" text-anchor="middle"><text x="94" y="244">Dec 24</text><text x="264" y="244">Sep 25</text><text x="434" y="244">Jun 26</text></g>
+  </g>
+
+  <!-- ELECTRIC COST/DAY (line) -->
+  <g transform="translate(24,332)">
+    <rect width="466" height="250" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="16" y="30" font-size="12" font-weight="700" letter-spacing="0.5" fill="#64748b">ELECTRIC COST PER DAY ($)</text>
+    <line x1="56" y1="58" x2="56" y2="228" stroke="#e2e8f0"/><line x1="56" y1="228" x2="452" y2="228" stroke="#e2e8f0"/>
+    <text x="50" y="62" font-size="9" fill="#94a3b8" text-anchor="end">12</text><text x="50" y="231" font-size="9" fill="#94a3b8" text-anchor="end">0</text>
+    <polyline fill="none" stroke="#2b82c9" stroke-width="2" points="60,142 94,137 128,140 162,152 196,130 230,113 264,88 298,100 332,115 366,134 400,157 434,123"/>
+    <g fill="#ffffff" stroke="#2b82c9" stroke-width="2">
+      <circle cx="60" cy="142" r="3"/><circle cx="94" cy="137" r="3"/><circle cx="128" cy="140" r="3"/><circle cx="162" cy="152" r="3"/><circle cx="196" cy="130" r="3"/><circle cx="230" cy="113" r="3"/><circle cx="264" cy="88" r="3"/><circle cx="298" cy="100" r="3"/><circle cx="332" cy="115" r="3"/><circle cx="366" cy="134" r="3"/><circle cx="400" cy="157" r="3"/><circle cx="434" cy="123" r="3"/>
+    </g>
+    <g font-size="9" fill="#94a3b8" text-anchor="middle"><text x="94" y="244">Dec 24</text><text x="264" y="244">Sep 25</text><text x="434" y="244">Jun 26</text></g>
+  </g>
+
+  <!-- GAS COST/DAY (line) -->
+  <g transform="translate(510,332)">
+    <rect width="466" height="250" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="16" y="30" font-size="12" font-weight="700" letter-spacing="0.5" fill="#64748b">GAS COST PER DAY ($)</text>
+    <line x1="56" y1="58" x2="56" y2="228" stroke="#e2e8f0"/><line x1="56" y1="228" x2="452" y2="228" stroke="#e2e8f0"/>
+    <text x="50" y="62" font-size="9" fill="#94a3b8" text-anchor="end">8</text><text x="50" y="231" font-size="9" fill="#94a3b8" text-anchor="end">0</text>
+    <polyline fill="none" stroke="#e8820e" stroke-width="2" points="60,188 94,183 128,151 162,100 196,143 230,177 264,192 298,198 332,198 366,175 400,111 434,160"/>
+    <g fill="#ffffff" stroke="#e8820e" stroke-width="2">
+      <circle cx="60" cy="188" r="3"/><circle cx="94" cy="183" r="3"/><circle cx="128" cy="151" r="3"/><circle cx="162" cy="100" r="3"/><circle cx="196" cy="143" r="3"/><circle cx="230" cy="177" r="3"/><circle cx="264" cy="192" r="3"/><circle cx="298" cy="198" r="3"/><circle cx="332" cy="198" r="3"/><circle cx="366" cy="175" r="3"/><circle cx="400" cy="111" r="3"/><circle cx="434" cy="160" r="3"/>
+    </g>
+    <g font-size="9" fill="#94a3b8" text-anchor="middle"><text x="94" y="244">Dec 24</text><text x="264" y="244">Sep 25</text><text x="434" y="244">Jun 26</text></g>
+  </g>
+
+  <!-- EFFECTIVE ELECTRIC RATE (line) -->
+  <g transform="translate(24,612)">
+    <rect width="466" height="250" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="16" y="30" font-size="12" font-weight="700" letter-spacing="0.5" fill="#64748b">EFFECTIVE ELECTRIC RATE ($/KWH)</text>
+    <line x1="56" y1="58" x2="56" y2="228" stroke="#e2e8f0"/><line x1="56" y1="228" x2="452" y2="228" stroke="#e2e8f0"/>
+    <text x="50" y="62" font-size="9" fill="#94a3b8" text-anchor="end">0.22</text><text x="50" y="231" font-size="9" fill="#94a3b8" text-anchor="end">0.12</text>
+    <polyline fill="none" stroke="#2b82c9" stroke-width="2" points="60,72 94,196 128,197 162,191 196,199 230,202 264,209 298,211 332,202 366,194 400,197"/>
+    <g fill="#ffffff" stroke="#2b82c9" stroke-width="2">
+      <circle cx="60" cy="72" r="3"/><circle cx="94" cy="196" r="3"/><circle cx="128" cy="197" r="3"/><circle cx="162" cy="191" r="3"/><circle cx="196" cy="199" r="3"/><circle cx="230" cy="202" r="3"/><circle cx="264" cy="209" r="3"/><circle cx="298" cy="211" r="3"/><circle cx="332" cy="202" r="3"/><circle cx="366" cy="194" r="3"/><circle cx="400" cy="197" r="3"/>
+    </g>
+    <g font-size="9" fill="#94a3b8" text-anchor="middle"><text x="94" y="244">Dec 24</text><text x="264" y="244">Sep 25</text><text x="434" y="244">Jun 26</text></g>
+  </g>
+
+  <!-- EFFECTIVE GAS RATE (line) -->
+  <g transform="translate(510,612)">
+    <rect width="466" height="250" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="16" y="30" font-size="12" font-weight="700" letter-spacing="0.5" fill="#64748b">EFFECTIVE GAS RATE ($/CCF)</text>
+    <line x1="56" y1="58" x2="56" y2="228" stroke="#e2e8f0"/><line x1="56" y1="228" x2="452" y2="228" stroke="#e2e8f0"/>
+    <text x="50" y="62" font-size="9" fill="#94a3b8" text-anchor="end">8</text><text x="50" y="231" font-size="9" fill="#94a3b8" text-anchor="end">0</text>
+    <polyline fill="none" stroke="#e8820e" stroke-width="2" points="60,79 94,186 128,196 162,198 196,188 230,186 264,177 298,181 332,196 366,183 400,177"/>
+    <g fill="#ffffff" stroke="#e8820e" stroke-width="2">
+      <circle cx="60" cy="79" r="3"/><circle cx="94" cy="186" r="3"/><circle cx="128" cy="196" r="3"/><circle cx="162" cy="198" r="3"/><circle cx="196" cy="188" r="3"/><circle cx="230" cy="186" r="3"/><circle cx="264" cy="177" r="3"/><circle cx="298" cy="181" r="3"/><circle cx="332" cy="196" r="3"/><circle cx="366" cy="183" r="3"/><circle cx="400" cy="177" r="3"/>
+    </g>
+    <g font-size="9" fill="#94a3b8" text-anchor="middle"><text x="94" y="244">Dec 24</text><text x="264" y="244">Sep 25</text><text x="434" y="244">Jun 26</text></g>
+  </g>
+</svg>
