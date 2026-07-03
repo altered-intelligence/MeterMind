@@ -66,14 +66,14 @@ def latest_insights(db: Session) -> dict:
         lambda: bill_comparison_service.compare_bill(db, bill_id).model_dump(mode="json"),
         warnings,
     )
+    # One session-attached, eager-loaded bill shared by audit + rate breakdown (each
+    # get_bill() is a full multi-relationship query — no need to run it twice).
+    attached = bill_service.get_bill(db, bill_id)
     audit = _safe(
-        "audit", lambda: bill_audit_service.get_or_create_audit(db, bill_service.get_bill(db, bill_id)),
-        warnings,
+        "audit", lambda: bill_audit_service.get_or_create_audit(db, attached), warnings
     )
     rate_breakdown = _safe(
-        "rate_breakdown",
-        lambda: rate_breakdown_service.breakdown_dict(bill_service.get_bill(db, bill_id)),
-        warnings,
+        "rate_breakdown", lambda: rate_breakdown_service.breakdown_dict(attached), warnings
     )
     anomalies = _safe(
         "anomalies", lambda: analytics_service.detect_basic_anomalies(db, user.id), warnings

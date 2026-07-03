@@ -17,7 +17,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ...config import get_settings
@@ -132,7 +132,16 @@ def set_location(
         loc.label = label
         loc.timezone = timezone_name or loc.timezone
         if moved:
-            loc.observations.clear()  # stale cache for a different point
+            # Everything derived from the old coordinates is stale for the new point:
+            # the daily-observation cache AND the per-bill weather summaries computed
+            # from it. Without deleting the summaries, /bills/{id}/weather and the
+            # normalization would keep serving the old location's degree-days.
+            loc.observations.clear()
+            db.execute(
+                delete(BillWeatherSummary).where(
+                    BillWeatherSummary.weather_location_id == loc.id
+                )
+            )
     db.commit()
     db.refresh(loc)
     return loc

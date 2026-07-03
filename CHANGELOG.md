@@ -3,6 +3,20 @@
 All notable changes to MeterMind are documented here. This project keeps version control on
 GitHub; each release summarizes the changes shipped in its commits.
 
+## [Unreleased]
+
+### Fixed
+- **Stale weather summaries on location change** — moving the weather location's coordinates
+  now also deletes the per-bill weather summaries computed from the old point (previously
+  only the daily-observation cache was cleared, so `/bills/{id}/weather` and normalization
+  kept serving the old location's degree-days until every bill was manually re-synced).
+  Covered by a regression test.
+
+### Changed
+- Insights aggregator loads the bill once and shares it between the audit and rate-breakdown
+  sections (was two identical eager-loaded queries).
+- `/api/security/audit-events` clamps its `limit` parameter to 1–1000.
+
 ## [0.2.0] — Analysis, weather, forecasting, exports & hardening
 
 A large feature release on top of the initial CoServ parser + dashboard MVP. Everything below

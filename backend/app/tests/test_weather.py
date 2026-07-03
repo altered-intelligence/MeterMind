@@ -185,6 +185,30 @@ def test_sync_without_location_returns_409(provider, coserv_pdf):
         assert client.post(f"/api/bills/{bid}/weather/sync").status_code == 409
 
 
+def test_moving_location_invalidates_bill_summaries(provider, coserv_pdf):
+    """Changing the location's coordinates must clear the per-bill weather summaries
+    computed from the old point — otherwise stale degree-days are served for the new
+    location until every bill is manually re-synced."""
+    with TestClient(app) as client:
+        bid = _upload(client, coserv_pdf)
+        _set_location(client)
+        client.post(f"/api/bills/{bid}/weather/sync")
+        assert client.get(f"/api/bills/{bid}/weather").json()["summary"] is not None
+
+        # Move to different coordinates -> old summary must be gone (unavailable again).
+        client.post(
+            "/api/weather/location",
+            json={"latitude": 40.71, "longitude": -74.0, "label": "Elsewhere"},
+        )
+        body = client.get(f"/api/bills/{bid}/weather").json()
+        assert body["summary"] is None
+        assert body["normalization"]["status"] == "unavailable"
+
+        # Re-sync against the new location works and rebuilds the summary.
+        assert client.post(f"/api/bills/{bid}/weather/sync").status_code == 201
+        assert client.get(f"/api/bills/{bid}/weather").json()["summary"] is not None
+
+
 # --------------------------------------------------------------------------------------
 # ZIP geocoding
 # --------------------------------------------------------------------------------------

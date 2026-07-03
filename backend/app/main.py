@@ -693,6 +693,7 @@ def export_bill_report_pdf(
 @app.get("/api/security/audit-events")
 def list_audit_events(limit: int = 200, db: Session = Depends(get_session)) -> list[dict]:
     """Recent security audit events (newest first). Contains no sensitive values."""
+    limit = max(1, min(limit, 1000))  # clamp: reject 0/negative, cap runaway requests
     return [audit_log_service.serialize_event(e) for e in audit_log_service.list_events(db, limit=limit)]
 
 
