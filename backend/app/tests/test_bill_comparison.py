@@ -214,7 +214,7 @@ def _variant_lines(primary, *, statement, due, after_due, kwh=None, total=None):
 
 
 def test_one_bill_returns_insufficient_history(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         with open(coserv_pdf, "rb") as fh:
             client.post("/api/bills/upload", files={"file": ("a.pdf", fh, "application/pdf")})
         body = client.get("/api/analytics/latest-comparison").json()
@@ -230,7 +230,7 @@ def test_comparison_uses_corrected_values(coserv_pdf, make_pdf, primary_lines):
                        after_due="$328.25", kwh="1800"),
         name="second.pdf",
     )
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         with open(coserv_pdf, "rb") as fh:
             client.post("/api/bills/upload", files={"file": ("a.pdf", fh, "application/pdf")})
         with open(second, "rb") as fh:

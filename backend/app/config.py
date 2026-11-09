@@ -24,6 +24,8 @@ VAR_DIR = BACKEND_DIR / "var"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="HUI_", env_file=".env", extra="ignore")
 
+    api_token: str = ""  # Optional bearer token; non-loopback clients are denied without it.
+
     app_name: str = "Home Utility Intelligence"
     app_version: str = "0.1.0"
 

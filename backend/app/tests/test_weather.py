@@ -160,7 +160,7 @@ def test_sync_observations_caches_and_does_not_refetch(provider):
 
 
 def test_sync_bill_weather_builds_summary(provider, coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         _set_location(client)
         body = client.post(f"/api/bills/{bid}/weather/sync").json()
@@ -180,7 +180,7 @@ def test_sync_bill_weather_builds_summary(provider, coserv_pdf):
 
 
 def test_sync_without_location_returns_409(provider, coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         assert client.post(f"/api/bills/{bid}/weather/sync").status_code == 409
 
@@ -189,7 +189,7 @@ def test_moving_location_invalidates_bill_summaries(provider, coserv_pdf):
     """Changing the location's coordinates must clear the per-bill weather summaries
     computed from the old point — otherwise stale degree-days are served for the new
     location until every bill is manually re-synced."""
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         _set_location(client)
         client.post(f"/api/bills/{bid}/weather/sync")
@@ -232,7 +232,7 @@ def test_mock_geocoder_rejects_blank():
 
 
 def test_set_location_by_zip(geocoder):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         loc = client.post("/api/weather/location", json={"zip_code": "76227"})
         assert loc.status_code == 201, loc.text
         body = loc.json()
@@ -243,13 +243,13 @@ def test_set_location_by_zip(geocoder):
 
 
 def test_set_location_requires_zip_or_latlon():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         # Neither zip nor coordinates -> validation error (422 from the schema validator).
         assert client.post("/api/weather/location", json={"label": "x"}).status_code == 422
 
 
 def test_zip_synced_bill_uses_geocoded_location(provider, geocoder, coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         client.post("/api/weather/location", json={"zip_code": "75001"})
         s = client.post(f"/api/bills/{bid}/weather/sync").json()["summary"]
@@ -262,7 +262,7 @@ def test_zip_synced_bill_uses_geocoded_location(provider, geocoder, coserv_pdf):
 
 
 def test_missing_weather_returns_unavailable(provider, coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)  # never synced
         body = client.get(f"/api/bills/{bid}/weather").json()
         assert body["summary"] is None
@@ -313,7 +313,7 @@ def test_normalization_computes_rates_with_degree_days():
 
 
 def test_normalization_uses_corrected_usage(provider, coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         _set_location(client)
         client.post(f"/api/bills/{bid}/weather/sync")

@@ -44,7 +44,7 @@ def _upload(client: TestClient, path: str, name: str = "bill.pdf") -> dict:
 
 
 def test_upload_parses_and_redacts_pii(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bill = _upload(client, coserv_pdf)
         assert bill["parser_confidence"] == "high"
         assert bill["electric_service"]["kwh_used"] == 1725
@@ -70,7 +70,7 @@ def test_upload_parses_and_redacts_pii(coserv_pdf):
 
 
 def test_list_get_json_delete(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)["id"]
 
         listing = client.get("/api/bills").json()
@@ -89,7 +89,7 @@ def test_list_get_json_delete(coserv_pdf):
 
 
 def test_debug_view_no_pii_leak(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)["id"]
         blocks = client.get(f"/api/bills/{bid}/debug").json()["redacted_text_blocks"]
         assert "1234567890" not in blocks
@@ -99,7 +99,7 @@ def test_debug_view_no_pii_leak(coserv_pdf):
 def test_same_account_dedupes_to_one_utility_account(coserv_pdf, make_pdf, primary_lines):
     # Same account number, two DIFFERENT statement dates (not duplicates).
     may = [ln.replace("06/05/2026", "05/07/2026") for ln in primary_lines]
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         a = _upload(client, make_pdf(may), "may.pdf")
         b = _upload(client, coserv_pdf, "jun.pdf")
         assert a["utility_account"]["id"] == b["utility_account"]["id"]  # deduped account
@@ -107,7 +107,7 @@ def test_same_account_dedupes_to_one_utility_account(coserv_pdf, make_pdf, prima
 
 
 def test_duplicate_bill_rejected(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         assert _upload(client, coserv_pdf, "first.pdf")  # first upload succeeds
         with open(coserv_pdf, "rb") as fh:
             resp = client.post("/api/bills/upload", files={"file": ("again.pdf", fh, "application/pdf")})
@@ -122,7 +122,7 @@ def test_analytics_summary(coserv_pdf, make_pdf, primary_lines):
         ln.replace("06/05/2026", "07/05/2026").replace("kWh Used: 1725", "kWh Used: 1800")
         for ln in primary_lines
     ]
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf, "june.pdf")
         _upload(client, make_pdf(later), "july.pdf")
 
@@ -144,7 +144,7 @@ def test_analytics_electric_and_gas(coserv_pdf, make_pdf, primary_lines):
         ln.replace("06/05/2026", "07/05/2026").replace("kWh Used: 1725", "kWh Used: 1800")
         for ln in primary_lines
     ]
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf, "june.pdf")
         _upload(client, make_pdf(later), "july.pdf")
 
@@ -164,7 +164,7 @@ def test_analytics_electric_and_gas(coserv_pdf, make_pdf, primary_lines):
 
 
 def test_analytics_summary_empty():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         summary = client.get("/api/analytics/summary").json()
         assert summary["total_bills"] == 0
         assert summary["latest"] is None
@@ -180,7 +180,7 @@ def test_ingest_failure_leaves_no_orphaned_pdf():
 
     import app.services.bill_service as bs
 
-    with TestClient(app):  # ensure tables exist
+    with TestClient(app, client=("127.0.0.1", 50000)):  # ensure tables exist
         pass
 
     monkey = pytest.MonkeyPatch()
@@ -198,7 +198,7 @@ def test_ingest_failure_leaves_no_orphaned_pdf():
 
 
 def test_rejects_non_pdf_with_error_envelope():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         resp = client.post(
             "/api/bills/upload", files={"file": ("notes.txt", b"hi", "text/plain")}
         )
@@ -207,7 +207,7 @@ def test_rejects_non_pdf_with_error_envelope():
 
 
 def test_health_and_version():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         assert client.get("/api/health").json()["status"] == "ok"
         v = client.get("/api/version").json()
         assert v["parser_version"] == "coserv-v0.1.0"
@@ -226,7 +226,7 @@ def test_parser_result_wrapper(coserv_pdf):
 
 
 def test_money_serialized_as_strings(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bill = _upload(client, coserv_pdf)
         s = bill["account_summary"]
         for field in ("total_amount_due", "electric_service_total", "gas_service_total"):
@@ -285,7 +285,7 @@ def _audit_check(result: dict, code: str) -> dict:
 
 
 def test_audit_clean_bill_passes(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)["id"]
         result = client.get(f"/api/bills/{bid}/audit").json()
 
@@ -309,7 +309,7 @@ def test_audit_clean_bill_passes(coserv_pdf):
 def test_audit_meter_mismatch_fails(coserv_pdf, make_pdf, primary_lines):
     # Tamper the current read so (current - last) * mult no longer equals kWh used.
     tampered = [ln.replace("Current Reading: 46955", "Current Reading: 50000") for ln in primary_lines]
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, make_pdf(tampered))["id"]
         result = client.get(f"/api/bills/{bid}/audit").json()
         check = _audit_check(result, "electric_meter_delta_matches_kwh")
@@ -322,7 +322,7 @@ def test_audit_meter_mismatch_fails(coserv_pdf, make_pdf, primary_lines):
 
 def test_audit_late_below_current_warns(coserv_pdf, make_pdf, primary_lines):
     tampered = [ln.replace("Amount Due After 06/22/2026  $328.25", "Amount Due After 06/22/2026  $300.00") for ln in primary_lines]
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, make_pdf(tampered))["id"]
         result = client.get(f"/api/bills/{bid}/audit").json()
         check = _audit_check(result, "late_amount_greater_than_or_equal_current_amount")
@@ -350,7 +350,7 @@ def test_audit_skipped_when_data_missing():
 
 
 def test_audit_persisted(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)["id"]
         first = client.get(f"/api/bills/{bid}/audit").json()
         second = client.get(f"/api/bills/{bid}/audit").json()
@@ -359,12 +359,12 @@ def test_audit_persisted(coserv_pdf):
 
 
 def test_health():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         assert client.get("/api/health").json()["status"] == "ok"
 
 
 def test_portal_status_is_disabled_placeholder():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         s = client.get("/api/portal/status").json()
         assert s["enabled"] is False
         assert s["browser_automation_enabled"] is False
@@ -377,13 +377,13 @@ def test_portal_status_is_disabled_placeholder():
 
 
 def test_portal_sync_not_implemented():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         resp = client.post("/api/portal/sync")
         assert resp.status_code == 501  # no automation in this build
 
 
 def test_insights_single_bill_matches_example_wording(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         ins = client.get("/api/analytics/insights").json()
 
@@ -413,7 +413,7 @@ def test_insights_detects_high_electric_usage(coserv_pdf, make_pdf, primary_line
             for ln in primary_lines
         ]
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, make_pdf(variant("03/06/2026", 1000)), "mar.pdf")
         _upload(client, make_pdf(variant("04/07/2026", 1000)), "apr.pdf")
         _upload(client, make_pdf(variant("06/05/2026", 1500)), "jun.pdf")  # latest, +50%/day
@@ -430,7 +430,7 @@ def test_insights_detects_high_electric_usage(coserv_pdf, make_pdf, primary_line
 
 
 def test_bill_summary_deterministic_when_llm_disabled(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)["id"]
         out = client.get(f"/api/bills/{bid}/summary").json()
 
@@ -466,7 +466,7 @@ def test_summary_payload_includes_history_with_multiple_bills(coserv_pdf, make_p
             for ln in primary_lines
         ]
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, make_pdf(variant("04/07/2026", 1400)), "apr.pdf")
         _upload(client, make_pdf(variant("05/07/2026", 1500)), "may.pdf")
         bid = _upload(client, coserv_pdf, "jun.pdf")["id"]  # June (1725 kWh) — the latest
@@ -485,7 +485,7 @@ def test_summary_payload_includes_history_with_multiple_bills(coserv_pdf, make_p
 
 
 def test_assistant_status_and_chat_disabled(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         status = client.get("/api/assistant/status").json()
         assert status["enabled"] is False  # Ollama off by default
@@ -497,7 +497,7 @@ def test_assistant_status_and_chat_disabled(coserv_pdf):
 
 
 def test_assistant_models_endpoint_shape():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         m = client.get("/api/assistant/models").json()
         assert set(m.keys()) == {"enabled", "active", "available"}
         assert isinstance(m["available"], list)
@@ -533,7 +533,7 @@ def test_assistant_context_covers_all_bills_no_pii(coserv_pdf, make_pdf, primary
             for ln in primary_lines
         ]
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, make_pdf(variant("04/07/2026", 1400)), "apr.pdf")
         _upload(client, make_pdf(variant("05/07/2026", 1500)), "may.pdf")
         _upload(client, coserv_pdf, "jun.pdf")
@@ -556,7 +556,7 @@ def test_assistant_context_covers_all_bills_no_pii(coserv_pdf, make_pdf, primary
 
 
 def test_summary_stream_disabled_returns_409(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)["id"]
         # /summary stays fast and never blocks on the model.
         assert client.get(f"/api/bills/{bid}/summary").json()["llm_status"] == "disabled"
@@ -583,7 +583,7 @@ def test_llm_summary_falls_back_when_ollama_unreachable():
 
 
 def test_insights_empty_history():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         ins = client.get("/api/analytics/insights").json()
         assert "No bills" in ins["summary"]
         assert ins["metrics"] == {}

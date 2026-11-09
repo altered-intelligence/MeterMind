@@ -238,7 +238,7 @@ def test_deterministic_output():
 def test_rate_breakdown_endpoint(coserv_pdf):
     from app.tests.test_api import _upload  # reuse the upload helper
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)["id"]
         res = client.get(f"/api/bills/{bid}/rate-breakdown")
         assert res.status_code == 200
@@ -254,7 +254,7 @@ def test_rate_breakdown_endpoint(coserv_pdf):
 def test_rate_breakdown_trends_endpoint(coserv_pdf):
     from app.tests.test_api import _upload
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         res = client.get("/api/analytics/rate-breakdown-trends")
         assert res.status_code == 200
@@ -264,5 +264,5 @@ def test_rate_breakdown_trends_endpoint(coserv_pdf):
 
 
 def test_rate_breakdown_404_for_missing_bill():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         assert client.get("/api/bills/999999/rate-breakdown").status_code == 404

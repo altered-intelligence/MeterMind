@@ -108,7 +108,7 @@ def test_find_duplicate_unit():
 def test_bulk_upload_partial_success(coserv_pdf):
     """A mixed batch: one good import, one in-batch duplicate, one invalid file."""
     good = _bytes(coserv_pdf)
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         batch = _bulk(client, [
             ("bill.pdf", good),
             ("bill_copy.pdf", good),          # identical bytes -> duplicate
@@ -134,7 +134,7 @@ def test_bulk_upload_partial_success(coserv_pdf):
 def test_bulk_upload_does_not_abort_on_failure(coserv_pdf):
     """A failing file in the middle must not stop later files from importing."""
     good = _bytes(coserv_pdf)
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         batch = _bulk(client, [
             ("bad.pdf", b"garbage"),     # fails first
             ("good.pdf", good),          # must still import
@@ -146,7 +146,7 @@ def test_bulk_upload_does_not_abort_on_failure(coserv_pdf):
 def test_bulk_duplicate_file_upload(coserv_pdf):
     """Re-uploading the exact same file in a later batch is a duplicate, not a new bill."""
     good = _bytes(coserv_pdf)
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         first = _bulk(client, [("a.pdf", good)])
         first_id = first["items"][0]["bill_id"]
 
@@ -163,7 +163,7 @@ def test_bulk_duplicate_file_upload(coserv_pdf):
 def test_bulk_same_bill_different_filename(coserv_pdf):
     """Same bytes under a different filename is still detected as a duplicate."""
     good = _bytes(coserv_pdf)
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _bulk(client, [("january.pdf", good)])
         second = _bulk(client, [("renamed.pdf", good)])
         assert second["items"][0]["status"] == "duplicate"
@@ -171,7 +171,7 @@ def test_bulk_same_bill_different_filename(coserv_pdf):
 
 def test_import_batches_endpoints(coserv_pdf):
     good = _bytes(coserv_pdf)
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         created = _bulk(client, [("bill.pdf", good)])
         batch_id = created["id"]
 

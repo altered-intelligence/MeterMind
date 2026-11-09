@@ -48,7 +48,7 @@ def _correct(client, bill_id, field_path, value, reason="test correction"):
 
 
 def test_correct_numeric_field(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         resp = _correct(client, bid, "electric.kwh_used", "1700")
         assert resp.status_code == 201, resp.text
@@ -69,7 +69,7 @@ def test_correct_numeric_field(coserv_pdf):
 
 
 def test_correct_date_field(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         resp = _correct(client, bid, "account_summary.due_date", "2026-07-01")
         assert resp.status_code == 201, resp.text
@@ -80,7 +80,7 @@ def test_correct_date_field(coserv_pdf):
 
 
 def test_correct_line_item_amount(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         resp = _correct(client, bid, "electric.line_items[0].amount", "31.00")
         assert resp.status_code == 201, resp.text
@@ -94,7 +94,7 @@ def test_correct_line_item_amount(coserv_pdf):
 
 
 def test_reject_invalid_numeric(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         resp = _correct(client, bid, "electric.kwh_used", "not-a-number")
         assert resp.status_code == 400
@@ -102,14 +102,14 @@ def test_reject_invalid_numeric(coserv_pdf):
 
 
 def test_reject_unsupported_field(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         resp = _correct(client, bid, "electric.frobnicate", "5")
         assert resp.status_code == 400
 
 
 def test_reject_sensitive_field(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         resp = _correct(client, bid, "account_summary.account_number", "9999")
         assert resp.status_code == 403
@@ -122,7 +122,7 @@ def test_reject_sensitive_field(coserv_pdf):
 
 def test_audit_reruns_after_correction(coserv_pdf):
     """Correcting kWh to a value inconsistent with the meter delta flips the audit check."""
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         before = {c["check_code"]: c for c in client.get(f"/api/bills/{bid}/audit").json()["checks"]}
         assert before["electric_meter_delta_matches_kwh"]["status"] == "pass"
@@ -137,7 +137,7 @@ def test_audit_reruns_after_correction(coserv_pdf):
 
 
 def test_analytics_use_corrected_value(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         assert client.get("/api/analytics/summary").json()["latest_electric_usage_kwh"] == 1725
         _correct(client, bid, "electric.kwh_used", "1700")
@@ -149,7 +149,7 @@ def test_original_parsed_value_preserved(coserv_pdf):
     from app.database import SessionLocal
     from app.models import Bill
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         _correct(client, bid, "electric.kwh_used", "1700")
 
@@ -170,7 +170,7 @@ def test_original_parsed_value_preserved(coserv_pdf):
 
 def test_correction_history_chains(coserv_pdf):
     """A second correction of the same field records the previous value as its original."""
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         _correct(client, bid, "electric.kwh_used", "1700")
         _correct(client, bid, "electric.kwh_used", "1710")

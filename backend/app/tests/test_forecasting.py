@@ -190,7 +190,7 @@ def test_zero_usage_does_not_crash():
 
 def test_forecast_endpoints():
     _seed_bills(4)
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         nb = client.get("/api/forecast/next-bill")
         assert nb.status_code == 200
         assert nb.json()["status"] == "ok"
@@ -205,5 +205,5 @@ def test_forecast_endpoints():
 
 
 def test_empty_forecast_endpoint_is_insufficient():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         assert client.get("/api/forecast/next-bill").json()["status"] == "insufficient_history"

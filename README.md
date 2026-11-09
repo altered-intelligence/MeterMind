@@ -329,3 +329,7 @@ The parser and schemas are CoServ-specific by design. The parser **registry**
 (`backend/app/parsers/registry.py`) and the provider-agnostic storage, hashing, API, and
 dashboard scaffolding make it possible to add other providers later by registering a new
 parser + schemas and tagging bills with a provider.
+
+### API access boundary
+
+API requests are loopback-only by default, even when the server is accidentally bound to all interfaces. For remote API clients set `HUI_API_TOKEN` to at least 32 random characters and send it as a Bearer authorization header over TLS. When configured, the token is required for local clients too. An authenticating reverse proxy is required for a shared browser deployment; keep its upstream private and do not trust arbitrary forwarded client headers.
