@@ -200,7 +200,7 @@ async def upload_bill(
     if not (filename.lower().endswith(".pdf") or "pdf" in content_type):
         raise ApiError(ErrorCode.INVALID_PDF, "Only PDF files are supported.", 415)
 
-    data = await file.read()
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
     if not data:
         raise ApiError(ErrorCode.INVALID_PDF, "Uploaded file is empty.", 400)
     if len(data) > MAX_UPLOAD_BYTES:
