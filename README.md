@@ -89,7 +89,7 @@ cd coserv-parser
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.lock
 alembic upgrade head          # create the local SQLite schema
 cd ..
 
