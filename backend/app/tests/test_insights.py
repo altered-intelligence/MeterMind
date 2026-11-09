@@ -43,7 +43,7 @@ def _variant(primary, *, statement, due):
 
 
 def test_no_bills_returns_empty_insights():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         body = client.get("/api/insights/latest").json()
         assert body["status"] == "no_bills"
         assert body["bill"] is None
@@ -53,7 +53,7 @@ def test_no_bills_returns_empty_insights():
 
 
 def test_one_bill_insights_has_sections_but_no_history(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         body = client.get("/api/insights/latest").json()
         assert body["status"] == "ok"
@@ -71,7 +71,7 @@ def test_one_bill_insights_has_sections_but_no_history(coserv_pdf):
 
 def test_multiple_bills_enable_comparison(coserv_pdf, make_pdf, primary_lines):
     second = make_pdf(_variant(primary_lines, statement="07/06/2026", due="07/22/2026"), name="b2.pdf")
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         _upload(client, second)
         body = client.get("/api/insights/latest").json()
@@ -88,7 +88,7 @@ def test_partial_failure_returns_warning(coserv_pdf, monkeypatch):
         raise RuntimeError("simulated failure")
 
     monkeypatch.setattr(rate_breakdown_service, "breakdown_dict", _boom)
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         body = client.get("/api/insights/latest").json()
         assert body["status"] == "ok"  # whole request still succeeds
@@ -100,7 +100,7 @@ def test_partial_failure_returns_warning(coserv_pdf, monkeypatch):
 
 
 def test_weather_disabled_section_unavailable(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         body = client.get("/api/insights/latest").json()
         # No weather synced -> normalization unavailable, not an error.

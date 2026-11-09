@@ -39,7 +39,7 @@ def _upload(client: TestClient, path: str) -> int:
 
 
 def test_list_parsers_endpoint():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         body = client.get("/api/parsers").json()
         assert any(p["provider_name"] == "coserv" for p in body)
         coserv = next(p for p in body if p["provider_name"] == "coserv")
@@ -48,7 +48,7 @@ def test_list_parsers_endpoint():
 
 
 def test_get_provider_and_latest_endpoints():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         prov = client.get("/api/parsers/coserv").json()
         assert prov["schema_version"] == "coserv-bill-schema-v1"
         latest = client.get("/api/parsers/coserv/latest").json()
@@ -57,7 +57,7 @@ def test_get_provider_and_latest_endpoints():
 
 
 def test_unknown_provider_returns_404():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         assert client.get("/api/parsers/nope").status_code == 404
         assert client.get("/api/parsers/nope/latest").status_code == 404
 
@@ -68,7 +68,7 @@ def test_unknown_provider_returns_404():
 
 
 def test_ingest_records_parser_run_and_provenance(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         bill = client.get(f"/api/bills/{bid}").json()
         assert bill["parser_version"] == "coserv-v0.1.0"
@@ -87,7 +87,7 @@ def test_ingest_records_parser_run_and_provenance(coserv_pdf):
 
 
 def test_reprocess_creates_run_and_updates_data(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         resp = client.post(f"/api/bills/{bid}/reprocess")
         assert resp.status_code == 200, resp.text
@@ -103,7 +103,7 @@ def test_reprocess_creates_run_and_updates_data(coserv_pdf):
 
 
 def test_reprocess_preserves_corrections(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         client.post(
             f"/api/bills/{bid}/corrections",
@@ -121,7 +121,7 @@ def test_reprocess_preserves_corrections(coserv_pdf):
 
 
 def test_reprocess_with_pinned_version(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         ok = client.post(
             f"/api/bills/{bid}/reprocess",
@@ -132,7 +132,7 @@ def test_reprocess_with_pinned_version(coserv_pdf):
 
 
 def test_reprocess_unknown_version_rejected(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         resp = client.post(
             f"/api/bills/{bid}/reprocess",
@@ -142,5 +142,5 @@ def test_reprocess_unknown_version_rejected(coserv_pdf):
 
 
 def test_reprocess_missing_bill_returns_404():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         assert client.post("/api/bills/999999/reprocess").status_code == 404

@@ -77,7 +77,7 @@ def test_hashing_is_stable_and_one_way():
 
 
 def test_security_headers_present():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         h = client.get("/api/health").headers
         assert h["x-content-type-options"] == "nosniff"
         assert h["x-frame-options"] == "DENY"
@@ -91,7 +91,7 @@ def test_security_headers_present():
 
 
 def test_upload_rejects_non_pdf_and_malformed():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         # Wrong extension/content-type.
         r = client.post("/api/bills/upload", files={"file": ("x.txt", b"hello", "text/plain")})
         assert r.status_code == 415
@@ -113,7 +113,7 @@ def test_upload_rejects_non_pdf_and_malformed():
 def test_sensitive_export_blocked_by_default(coserv_pdf):
     import json
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         data = json.loads(client.get(f"/api/bills/{bid}/export.json?include_sensitive=true").content)
         assert data["account_summary"]["account_number_last4"] is None
@@ -130,7 +130,7 @@ def test_privacy_mode_blocks_external_and_sensitive(monkeypatch, coserv_pdf):
     assert privacy.local_only() is True
     assert privacy.external_calls_allowed() is False
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         # Sensitive export still blocked under privacy mode.
         data = json.loads(client.get(f"/api/bills/{bid}/export.json?include_sensitive=true").content)
@@ -152,7 +152,7 @@ def test_privacy_mode_blocks_external_and_sensitive(monkeypatch, coserv_pdf):
 
 def test_logs_do_not_contain_account_or_address(coserv_pdf, caplog):
     with caplog.at_level(logging.INFO):
-        with TestClient(app) as client:
+        with TestClient(app, client=("127.0.0.1", 50000)) as client:
             _upload(client, coserv_pdf)
     blob = "\n".join(r.getMessage() for r in caplog.records)
     assert "1234567890" not in blob  # full account number from the fixture
@@ -167,7 +167,7 @@ def test_logs_do_not_contain_account_or_address(coserv_pdf, caplog):
 def test_audit_events_created_without_sensitive_values(coserv_pdf):
     import json
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         client.post(
             f"/api/bills/{bid}/corrections",
@@ -191,7 +191,7 @@ def test_summary_falls_back_when_llm_disabled(coserv_pdf, monkeypatch):
     from app.config import get_settings
 
     monkeypatch.setattr(get_settings(), "enable_local_llm", False)
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         exp = client.get(f"/api/bills/{bid}/summary").json()["explanation"]
         assert exp["source"] == "deterministic"
@@ -208,7 +208,7 @@ def test_summary_falls_back_when_llm_disabled(coserv_pdf, monkeypatch):
 def test_summary_payload_contains_no_sensitive_fields(coserv_pdf):
     import json
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         exp = client.get(f"/api/bills/{bid}/summary").json()["explanation"]
         blob = json.dumps(exp["source_metrics"]).lower()
@@ -220,7 +220,7 @@ def test_summary_does_not_invent_weather_when_absent(coserv_pdf):
     """With no weather synced, the deterministic summary must not assert weather causes."""
     import json
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         exp = client.get(f"/api/bills/{bid}/summary").json()["explanation"]
         text = json.dumps(

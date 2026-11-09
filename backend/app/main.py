@@ -31,13 +31,15 @@ and meter numbers are hashed (never stored in full); responses only ever expose 
 from __future__ import annotations
 
 import json
+import hmac
+import ipaddress
 import logging
 from contextlib import asynccontextmanager
 from datetime import date
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from .schemas import CorrectionRequest, ReprocessRequest, WeatherLocationCreate
@@ -136,6 +138,23 @@ _SECURITY_HEADERS = {
         "frame-ancestors 'none'"
     ),
 }
+
+
+@app.middleware("http")
+async def enforce_local_access(request, call_next):
+    token = settings.api_token
+    if token:
+        supplied = request.headers.get("authorization", "")
+        if len(token) < 32 or not hmac.compare_digest(supplied.encode(), ("Bearer " + token).encode()):
+            return JSONResponse({"detail": "Authentication required"}, status_code=401)
+    else:
+        try:
+            local = request.client is not None and ipaddress.ip_address(request.client.host).is_loopback
+        except ValueError:
+            local = False
+        if not local:
+            return JSONResponse({"detail": "Local access only; configure HUI_API_TOKEN for authenticated access"}, status_code=403)
+    return await call_next(request)
 
 
 @app.middleware("http")

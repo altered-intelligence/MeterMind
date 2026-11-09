@@ -57,7 +57,7 @@ def _rows(csv_text: str) -> list[dict]:
 
 
 def test_bills_json_export(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         r = client.get("/api/export/bills.json")
         assert r.status_code == 200
@@ -69,7 +69,7 @@ def test_bills_json_export(coserv_pdf):
 
 
 def test_single_bill_json_export_matches_corrected_value(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         client.post(
             f"/api/bills/{bid}/corrections",
@@ -87,7 +87,7 @@ def test_single_bill_json_export_matches_corrected_value(coserv_pdf):
 
 
 def test_bills_csv_columns_and_formatting(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         r = client.get("/api/export/bills.csv")
         assert r.status_code == 200
@@ -106,7 +106,7 @@ def test_bills_csv_columns_and_formatting(coserv_pdf):
 
 
 def test_electric_and_gas_csv(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         e = _rows(client.get("/api/export/electric.csv").text)[0]
         assert e["kwh_used"] == "1725"
@@ -118,7 +118,7 @@ def test_electric_and_gas_csv(coserv_pdf):
 
 
 def test_charges_csv(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         _upload(client, coserv_pdf)
         rows = _rows(client.get("/api/export/charges.csv").text)
         assert {"bill_date", "service_type", "label", "quantity", "unit", "rate", "amount", "is_credit"} == set(
@@ -129,7 +129,7 @@ def test_charges_csv(coserv_pdf):
 
 
 def test_charges_csv_reflects_corrected_line_item(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         # Correct the first electric line item's amount; the CSV must show the new value.
         client.post(
@@ -147,7 +147,7 @@ def test_charges_csv_reflects_corrected_line_item(coserv_pdf):
 
 
 def test_sensitive_excluded_by_default(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         data = json.loads(client.get(f"/api/bills/{bid}/export.json").content)
         assert data["account_summary"]["account_number_last4"] is None
@@ -156,7 +156,7 @@ def test_sensitive_excluded_by_default(coserv_pdf):
 
 
 def test_include_sensitive_ignored_without_config(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         # Config defaults OFF, so include_sensitive=true is ignored.
         data = json.loads(client.get(f"/api/bills/{bid}/export.json?include_sensitive=true").content)
@@ -164,7 +164,7 @@ def test_include_sensitive_ignored_without_config(coserv_pdf):
 
 
 def test_include_sensitive_honored_when_config_allows(coserv_pdf, allow_sensitive):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         # Default (no flag) is still scrubbed even with config on.
         scrubbed = json.loads(client.get(f"/api/bills/{bid}/export.json").content)
@@ -180,7 +180,7 @@ def test_include_sensitive_honored_when_config_allows(coserv_pdf, allow_sensitiv
 
 
 def test_report_pdf(coserv_pdf):
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         bid = _upload(client, coserv_pdf)
         r = client.get(f"/api/bills/{bid}/report.pdf")
         assert r.status_code == 200
@@ -189,6 +189,6 @@ def test_report_pdf(coserv_pdf):
 
 
 def test_export_missing_bill_404():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         assert client.get("/api/bills/999/export.json").status_code == 404
         assert client.get("/api/bills/999/report.pdf").status_code == 404
